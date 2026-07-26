@@ -132,6 +132,22 @@ struct OnroadEvent @0xc4fa6047f024e718 {
     excessiveActuation @96;
     audioFeedback @97;
 
+    # xnor: MADS (Modular Assistive Driving System) events, ported from sunnypilot
+    lkasEnable @98;
+    lkasDisable @99;
+    silentLkasEnable @100;
+    silentLkasDisable @101;
+    silentDoorOpen @102;
+    silentSeatbeltNotLatched @103;
+    silentWrongGear @104;
+    silentReverseGear @105;
+    silentBrakeHold @106;
+    silentParkBrake @107;
+    manualSteeringRequired @108;
+    manualLongitudinalRequired @109;
+    pedalPressedAlertOnly @110;
+    wrongCarModeAlertOnly @111;
+
     soundsUnavailableDEPRECATED @47;
   }
 }
@@ -834,6 +850,9 @@ struct SelfdriveState {
   # configurable driving settings
   experimentalMode @10 :Bool;
   personality @11 :LongitudinalPersonality;
+
+  # xnor: MADS (Modular Assistive Driving System), ported from sunnypilot
+  madsSP @13 :Custom.ModularAssistiveDrivingSystem;
 
   enum OpenpilotState @0xdbe58b96d2d1ac61 {
     disabled @0;

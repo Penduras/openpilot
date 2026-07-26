@@ -18,6 +18,10 @@ DESCRIPTIONS = {
     "Your attention is required at all times to use this feature."
   ),
   "DisengageOnAccelerator": tr_noop("When enabled, pressing the accelerator pedal will disengage openpilot."),
+  "Mads": tr_noop(
+    "Modular Assistive Driving System (MADS): lets lane keeping assist stay engaged independent of adaptive cruise. " +
+    "Braking will still disengage steering assist."
+  ),
   "LongitudinalPersonality": tr_noop(
     "Standard is recommended. In aggressive mode, openpilot will follow lead cars closer and be more aggressive with the gas and brake. " +
     "In relaxed mode openpilot will stay further away from lead cars. On supported cars, you can cycle through these personalities with " +
@@ -59,6 +63,12 @@ class TogglesLayout(Widget):
         DESCRIPTIONS["DisengageOnAccelerator"],
         "disengage_on_accelerator.png",
         False,
+      ),
+      "Mads": (
+        lambda: tr("Modular Assistive Driving System (MADS)"),
+        DESCRIPTIONS["Mads"],
+        "chffr_wheel.png",
+        True,
       ),
       "IsLdwEnabled": (
         lambda: tr("Enable Lane Departure Warnings"),

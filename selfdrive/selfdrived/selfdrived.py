@@ -18,6 +18,7 @@ from openpilot.selfdrive.car.car_specific import CarSpecificEvents
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 from openpilot.selfdrive.selfdrived.events import Events, ET
 from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck
+from openpilot.selfdrive.selfdrived.mads import ModularAssistiveDrivingSystem
 from openpilot.selfdrive.selfdrived.state import StateMachine
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
 
@@ -120,6 +121,7 @@ class SelfdriveD:
     self.personality = self.params.get("LongitudinalPersonality", return_default=True)
     self.recalibrating_seen = False
     self.state_machine = StateMachine()
+    self.mads = ModularAssistiveDrivingSystem(self)
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
     # Determine startup event
@@ -481,6 +483,11 @@ class SelfdriveD:
     ss.alertSound = self.AM.current_alert.audible_alert
     ss.alertHudVisual = self.AM.current_alert.visual_alert
 
+    ss.madsSP.state = self.mads.state_machine.state
+    ss.madsSP.enabled = self.mads.enabled
+    ss.madsSP.active = self.mads.active
+    ss.madsSP.available = self.mads.enabled_toggle
+
     self.pm.send('selfdriveState', ss_msg)
 
     # onroadEvents - logged every second or on change
@@ -496,6 +503,7 @@ class SelfdriveD:
     self.update_events(CS)
     if not self.CP.passive and self.initialized:
       self.enabled, self.active = self.state_machine.update(self.events)
+    self.mads.update(CS)
     self.update_alerts(CS)
 
     self.publish_selfdriveState(CS)

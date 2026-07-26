@@ -98,6 +98,20 @@ class Events:
     for e in events:
       bisect.insort(self.events, e.name.raw)
 
+  def has(self, event_name: int) -> bool:
+    return event_name in self.events
+
+  def contains_in_list(self, events_list: list[int]) -> bool:
+    return any(event_name in self.events for event_name in events_list)
+
+  def remove(self, event_name: int, static: bool = False) -> None:
+    if static and event_name in self.static_events:
+      self.static_events.remove(event_name)
+
+    if event_name in self.events:
+      self.event_counters[event_name] = self.event_counters[event_name] + 1
+      self.events.remove(event_name)
+
   def to_msg(self):
     ret = []
     for event_name in self.events:
@@ -1021,6 +1035,101 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
 
   EventName.audioFeedback: {
     ET.PERMANENT: audio_feedback_alert,
+  },
+
+  # xnor: MADS (Modular Assistive Driving System) alerts, ported from sunnypilot
+  EventName.lkasEnable: {
+    ET.ENABLE: EngagementAlert(AudibleAlert.engage),
+  },
+
+  EventName.lkasDisable: {
+    ET.USER_DISABLE: EngagementAlert(AudibleAlert.disengage),
+  },
+
+  EventName.manualSteeringRequired: {
+    ET.USER_DISABLE: Alert(
+      "Automatic Lane Centering is OFF",
+      "Manual Steering Required",
+      AlertStatus.normal, AlertSize.mid,
+      Priority.LOW, VisualAlert.none, AudibleAlert.disengage, 1.),
+  },
+
+  EventName.manualLongitudinalRequired: {
+    ET.WARNING: Alert(
+      "Smart/Adaptive Cruise Control: OFF",
+      "Manual Speed Control Required",
+      AlertStatus.normal, AlertSize.mid,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 1.),
+  },
+
+  EventName.silentLkasEnable: {
+    ET.ENABLE: EngagementAlert(AudibleAlert.none),
+  },
+
+  EventName.silentLkasDisable: {
+    ET.USER_DISABLE: EngagementAlert(AudibleAlert.none),
+  },
+
+  EventName.silentBrakeHold: {
+    ET.WARNING: EngagementAlert(AudibleAlert.none),
+    ET.NO_ENTRY: NoEntryAlert("Brake Hold Active"),
+  },
+
+  EventName.silentWrongGear: {
+    ET.WARNING: Alert(
+      "",
+      "",
+      AlertStatus.normal, AlertSize.none,
+      Priority.LOWEST, VisualAlert.none, AudibleAlert.none, 0.),
+    ET.NO_ENTRY: Alert(
+      "Gear not D",
+      "openpilot Unavailable",
+      AlertStatus.normal, AlertSize.mid,
+      Priority.LOW, VisualAlert.none, AudibleAlert.none, 0.),
+  },
+
+  EventName.silentReverseGear: {
+    ET.PERMANENT: Alert(
+      "Reverse\nGear",
+      "",
+      AlertStatus.normal, AlertSize.full,
+      Priority.LOWEST, VisualAlert.none, AudibleAlert.none, .2, creation_delay=0.5),
+    ET.NO_ENTRY: NoEntryAlert("Reverse Gear"),
+  },
+
+  EventName.silentDoorOpen: {
+    ET.WARNING: Alert(
+      "",
+      "",
+      AlertStatus.normal, AlertSize.none,
+      Priority.LOWEST, VisualAlert.none, AudibleAlert.none, 0.),
+    ET.NO_ENTRY: NoEntryAlert("Door Open"),
+  },
+
+  EventName.silentSeatbeltNotLatched: {
+    ET.WARNING: Alert(
+      "",
+      "",
+      AlertStatus.normal, AlertSize.none,
+      Priority.LOWEST, VisualAlert.none, AudibleAlert.none, 0.),
+    ET.NO_ENTRY: NoEntryAlert("Seatbelt Unlatched"),
+  },
+
+  EventName.silentParkBrake: {
+    ET.WARNING: Alert(
+      "",
+      "",
+      AlertStatus.normal, AlertSize.none,
+      Priority.LOWEST, VisualAlert.none, AudibleAlert.none, 0.),
+    ET.NO_ENTRY: NoEntryAlert("Parking Brake Engaged"),
+  },
+
+  EventName.wrongCarModeAlertOnly: {
+    ET.WARNING: wrong_car_mode_alert,
+  },
+
+  EventName.pedalPressedAlertOnly: {
+    ET.WARNING: NoEntryAlert("Pedal Pressed"),
   },
 }
 

@@ -66,6 +66,15 @@ class Controls:
       device_pose = Pose.from_live_pose(self.sm['livePose'])
       self.calibrated_pose = self.pose_calibrator.build_calibrated_pose(device_pose)
 
+  @staticmethod
+  def get_lat_active(ss) -> bool:
+    # MADS: let lateral stay active independent of the primary (longitudinal) engagement
+    # when available, falling back to stock behavior when MADS is off.
+    mads = ss.madsSP
+    if mads.available:
+      return bool(mads.active)
+    return bool(ss.active)
+
   def state_control(self):
     CS = self.sm['carState']
 
@@ -93,7 +102,7 @@ class Controls:
 
     # Check which actuators can be enabled
     standstill = abs(CS.vEgo) <= max(self.CP.minSteerSpeed, 0.3) or CS.standstill
-    CC.latActive = self.sm['selfdriveState'].active and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
+    CC.latActive = self.get_lat_active(self.sm['selfdriveState']) and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
                    (not standstill or self.CP.steerAtStandstill)
     CC.longActive = CC.enabled and not any(e.overrideLongitudinal for e in self.sm['onroadEvents']) and self.CP.openpilotLongitudinalControl
 
