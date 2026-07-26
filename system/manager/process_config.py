@@ -69,6 +69,9 @@ def or_(*fns):
 def and_(*fns):
   return lambda *args: operator.and_(*(fn(*args) for fn in fns))
 
+mapd_native_process = NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready)
+mapd_native_process.restart_if_crash = True
+
 procs = [
   DaemonProcess("manage_athenad", "system.athena.manage_athenad", "AthenadPid"),
 
@@ -116,9 +119,13 @@ procs = [
   PythonProcess("statsd", "system.statsd", always_run),
   PythonProcess("feedbackd", "selfdrive.ui.feedback.feedbackd", only_onroad),
 
-  # xnor: Speed Limit Control (mapd v2 - pfeiferj/mapd), ported from sunnypilot
-  NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready),
-  PythonProcess("mapd_config", "selfdrive.mapd.mapd_config", always_run),
+  # xnor: Speed Limit Control (mapd v2 - pfeiferj/mapd), ported from sunnypilot.
+  # restart_if_crash=True on both: mapd_config disappeared once during bench testing with
+  # no crash log, no OOM kill, no signal in dmesg - cause unconfirmed, so make it self-heal
+  # regardless. NativeProcess's constructor doesn't take restart_if_crash, so it's set
+  # afterward (it's just a plain attribute on the ManagerProcess base class).
+  mapd_native_process,
+  PythonProcess("mapd_config", "selfdrive.mapd.mapd_config", always_run, restart_if_crash=True),
 
   # debug procs
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),
