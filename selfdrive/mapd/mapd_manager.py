@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 import json
-import math
 import os
 import platform
 
 import cereal.messaging as messaging
-from cereal import log
+from openpilot.common.gps import get_gps_location_service
 from openpilot.common.params import Params
 from openpilot.common.realtime import Ratekeeper, config_realtime_process
 from openpilot.common.swaglog import cloudlog
@@ -29,20 +28,21 @@ class OsmMapData:
     self.params = Params()
     self.mem_params = Params("/dev/shm/params") if platform.system() != "Darwin" else self.params
 
-    self.sm = messaging.SubMaster(['liveLocationKalman'])
+    # xnor: this fork has no fused liveLocationKalman - use the raw GPS fix directly,
+    # matching what SpeedLimitResolver already keys its own fix-age check off of.
+    self._gps_service = get_gps_location_service(self.params)
+    self.sm = messaging.SubMaster([self._gps_service])
     self.pm = messaging.PubMaster(['liveMapDataSP'])
 
-    self.localizer_valid = False
     self.last_bearing: float | None = None
     self.last_position = coordinate_from_param("LastGPSPositionLLK", self.params)
 
   def update_location(self) -> None:
-    location = self.sm['liveLocationKalman']
-    self.localizer_valid = (location.status == log.LiveLocationKalman.Status.valid) and location.positionGeodetic.valid
+    gps = self.sm[self._gps_service]
 
-    if self.localizer_valid:
-      self.last_bearing = math.degrees(location.calibratedOrientationNED.value[2])
-      self.last_position = Coordinate(location.positionGeodetic.value[0], location.positionGeodetic.value[1])
+    if self.sm.valid[self._gps_service]:
+      self.last_bearing = gps.bearingDeg
+      self.last_position = Coordinate(gps.latitude, gps.longitude)
 
     if self.last_position is None:
       return
@@ -82,7 +82,7 @@ class OsmMapData:
     next_speed_limit, next_speed_limit_distance = self.get_next_speed_limit_and_distance()
 
     mapd_sp_send = messaging.new_message('liveMapDataSP')
-    mapd_sp_send.valid = self.sm['liveLocationKalman'].gpsOK
+    mapd_sp_send.valid = self.sm.valid[self._gps_service]
     live_map_data = mapd_sp_send.liveMapDataSP
 
     live_map_data.speedLimitValid = bool(MAX_SPEED_LIMIT > speed_limit > 0)
