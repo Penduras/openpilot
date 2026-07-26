@@ -7,7 +7,6 @@ from pathlib import Path
 import requests
 
 from openpilot.common.params import Params
-from openpilot.system.hardware.hw import Paths
 from openpilot.selfdrive.mapd import MAPD_PATH, MAPD_BIN_DIR
 
 # xnor: ported from sunnypilot/pfeiferj's mapd installer, trimmed to just the
@@ -43,8 +42,6 @@ class MapdInstallManager:
 
   @staticmethod
   def ensure_directories_exist() -> None:
-    if not os.path.exists(Paths.mapd_root()):
-      os.makedirs(Paths.mapd_root())
     if not os.path.exists(MAPD_BIN_DIR):
       os.makedirs(MAPD_BIN_DIR)
 
