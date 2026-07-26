@@ -55,7 +55,10 @@ def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started
 
 def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
-  return bool(os.path.exists(Paths.mapd_root()))
+  # xnor: gate on the binary itself, not just its directory - mapd_config.py downloads it
+  # in the background and this must stay False until that download actually finishes,
+  # since NativeProcess never auto-restarts after a failed launch (restart_if_crash=False).
+  return bool(os.path.exists(MAPD_PATH))
 
 def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started
