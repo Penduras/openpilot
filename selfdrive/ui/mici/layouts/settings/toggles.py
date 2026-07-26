@@ -22,6 +22,7 @@ class TogglesLayoutMici(NavScroller):
     record_mic = BigParamControl("record & upload mic audio", "RecordAudio", toggle_callback=restart_needed_callback)
     enable_openpilot = BigParamControl("enable openpilot", "OpenpilotEnabledToggle", toggle_callback=restart_needed_callback)
     mads_toggle = BigParamControl("modular assistive driving system (mads)", "Mads", toggle_callback=restart_needed_callback)
+    speed_limit_toggle = BigParamControl("speed limit control", "SpeedLimitControl", toggle_callback=restart_needed_callback)
 
     self._scroller.add_widgets([
       self._personality_toggle,
@@ -33,6 +34,7 @@ class TogglesLayoutMici(NavScroller):
       record_mic,
       enable_openpilot,
       mads_toggle,
+      speed_limit_toggle,
     ])
 
     # Toggle lists
@@ -45,6 +47,7 @@ class TogglesLayoutMici(NavScroller):
       ("RecordAudio", record_mic),
       ("OpenpilotEnabledToggle", enable_openpilot),
       ("Mads", mads_toggle),
+      ("SpeedLimitControl", speed_limit_toggle),
     )
 
     enable_openpilot.set_enabled(lambda: not ui_state.engaged)

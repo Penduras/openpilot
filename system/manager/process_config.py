@@ -5,7 +5,9 @@ import platform
 from cereal import car
 from openpilot.common.params import Params
 from openpilot.system.hardware import PC, TICI
+from openpilot.system.hardware.hw import Paths
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
+from openpilot.selfdrive.mapd import MAPD_PATH
 
 WEBCAM = os.getenv("USE_WEBCAM") is not None
 
@@ -51,6 +53,9 @@ def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
 
 def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started
+
+def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return bool(os.path.exists(Paths.mapd_root()))
 
 def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started
@@ -107,6 +112,10 @@ procs = [
   PythonProcess("uploader", "system.loggerd.uploader", always_run),
   PythonProcess("statsd", "system.statsd", always_run),
   PythonProcess("feedbackd", "selfdrive.ui.feedback.feedbackd", only_onroad),
+
+  # xnor: Speed Limit Control (mapd), ported from sunnypilot
+  NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready),
+  PythonProcess("mapd_manager", "selfdrive.mapd.mapd_manager", always_run),
 
   # debug procs
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),

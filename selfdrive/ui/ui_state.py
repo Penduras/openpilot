@@ -50,6 +50,8 @@ class UIState:
         "managerState",
         "selfdriveState",
         "longitudinalPlan",
+        "longitudinalPlanSP",
+        "liveMapDataSP",
         "gpsLocationExternal",
         "carOutput",
         "carControl",

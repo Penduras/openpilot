@@ -148,6 +148,12 @@ struct OnroadEvent @0xc4fa6047f024e718 {
     pedalPressedAlertOnly @111;
     wrongCarModeAlertOnly @112;
 
+    # xnor: Speed Limit Control events, ported from sunnypilot
+    speedLimitPreActive @113;
+    speedLimitActive @114;
+    speedLimitChanged @115;
+    speedLimitPending @116;
+
     soundsUnavailableDEPRECATED @47;
   }
 }
@@ -2654,13 +2660,13 @@ struct Event {
     # DON'T change which struct it points to
     madsSPEvent @107 :Custom.ModularAssistiveDrivingSystem;
     customReserved1 @108 :Custom.CustomReserved1;
-    customReserved2 @109 :Custom.CustomReserved2;
+    longitudinalPlanSP @109 :Custom.LongitudinalPlanSP;
     customReserved3 @110 :Custom.CustomReserved3;
     customReserved4 @111 :Custom.CustomReserved4;
     customReserved5 @112 :Custom.CustomReserved5;
     customReserved6 @113 :Custom.CustomReserved6;
     customReserved7 @114 :Custom.CustomReserved7;
-    customReserved8 @115 :Custom.CustomReserved8;
+    liveMapDataSP @115 :Custom.LiveMapDataSP;
     customReserved9 @116 :Custom.CustomReserved9;
     customReserved10 @136 :Custom.CustomReserved10;
     customReserved11 @137 :Custom.CustomReserved11;

@@ -1,5 +1,9 @@
 venv/
 .venv/
+
+# xnor: mapd binary is downloaded at runtime, not vendored (see selfdrive/mapd/mapd_installer.py)
+third_party/mapd_pfeiferj/mapd
+third_party/mapd_pfeiferj/*.tmp
 .ci_cache
 .env
 .clang-format
