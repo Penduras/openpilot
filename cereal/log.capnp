@@ -133,20 +133,20 @@ struct OnroadEvent @0xc4fa6047f024e718 {
     audioFeedback @97;
 
     # xnor: MADS (Modular Assistive Driving System) events, ported from sunnypilot
-    lkasEnable @98;
-    lkasDisable @99;
-    silentLkasEnable @100;
-    silentLkasDisable @101;
-    silentDoorOpen @102;
-    silentSeatbeltNotLatched @103;
-    silentWrongGear @104;
-    silentReverseGear @105;
-    silentBrakeHold @106;
-    silentParkBrake @107;
-    manualSteeringRequired @108;
-    manualLongitudinalRequired @109;
-    pedalPressedAlertOnly @110;
-    wrongCarModeAlertOnly @111;
+    lkasEnable @99;
+    lkasDisable @100;
+    silentLkasEnable @101;
+    silentLkasDisable @102;
+    silentDoorOpen @103;
+    silentSeatbeltNotLatched @104;
+    silentWrongGear @105;
+    silentReverseGear @106;
+    silentBrakeHold @107;
+    silentParkBrake @108;
+    manualSteeringRequired @109;
+    manualLongitudinalRequired @110;
+    pedalPressedAlertOnly @111;
+    wrongCarModeAlertOnly @112;
 
     soundsUnavailableDEPRECATED @47;
   }
