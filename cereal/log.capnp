@@ -2660,13 +2660,13 @@ struct Event {
     # DON'T change which struct it points to
     madsSPEvent @107 :Custom.ModularAssistiveDrivingSystem;
     customReserved1 @108 :Custom.CustomReserved1;
-    longitudinalPlanSP @109 :Custom.LongitudinalPlanSP;
+    customReserved2 @109 :Custom.CustomReserved2;
     customReserved3 @110 :Custom.CustomReserved3;
     customReserved4 @111 :Custom.CustomReserved4;
     customReserved5 @112 :Custom.CustomReserved5;
     customReserved6 @113 :Custom.CustomReserved6;
     customReserved7 @114 :Custom.CustomReserved7;
-    liveMapDataSP @115 :Custom.LiveMapDataSP;
+    customReserved8 @115 :Custom.CustomReserved8;
     customReserved9 @116 :Custom.CustomReserved9;
     customReserved10 @136 :Custom.CustomReserved10;
     customReserved11 @137 :Custom.CustomReserved11;
@@ -2675,9 +2675,9 @@ struct Event {
     customReserved14 @140 :Custom.CustomReserved14;
     customReserved15 @141 :Custom.CustomReserved15;
     customReserved16 @142 :Custom.CustomReserved16;
-    customReserved17 @143 :Custom.CustomReserved17;
-    customReserved18 @144 :Custom.CustomReserved18;
-    customReserved19 @145 :Custom.CustomReserved19;
+    mapdExtendedOut @143 :Custom.MapdExtendedOut;
+    mapdIn @144 :Custom.MapdIn;
+    mapdOut @145 :Custom.MapdOut;
 
     # *********** legacy + deprecated ***********
     model @9 :Legacy.ModelData; # TODO: rename modelV2 and mark this as deprecated

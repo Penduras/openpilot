@@ -12,8 +12,10 @@ from openpilot.selfdrive.mapd import MAPD_PATH, MAPD_BIN_DIR
 
 # xnor: ported from sunnypilot/pfeiferj's mapd installer, trimmed to just the
 # download-on-first-run path (no boot spinner screen, no release-branch checks).
-VERSION = "v1.12.0"
-URL = f"https://github.com/pfeiferj/openpilot-mapd/releases/download/{VERSION}/mapd"
+# NOTE: v1.x used a different protocol (mem_params) than the current v2.x (cereal
+# MapdIn/MapdOut messages) - make sure VERSION/URL and the schema stay in sync.
+VERSION = "v2.1.0"
+URL = f"https://github.com/pfeiferj/mapd/releases/download/{VERSION}/mapd"
 
 
 def update_installed_version(version: str, params: Params | None = None) -> None:

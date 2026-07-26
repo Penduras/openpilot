@@ -113,9 +113,9 @@ procs = [
   PythonProcess("statsd", "system.statsd", always_run),
   PythonProcess("feedbackd", "selfdrive.ui.feedback.feedbackd", only_onroad),
 
-  # xnor: Speed Limit Control (mapd), ported from sunnypilot
+  # xnor: Speed Limit Control (mapd v2 - pfeiferj/mapd), ported from sunnypilot
   NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready),
-  PythonProcess("mapd_manager", "selfdrive.mapd.mapd_manager", always_run),
+  PythonProcess("mapd_config", "selfdrive.mapd.mapd_config", always_run),
 
   # debug procs
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),

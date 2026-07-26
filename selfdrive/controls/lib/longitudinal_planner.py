@@ -3,10 +3,10 @@ import math
 import numpy as np
 
 import cereal.messaging as messaging
-from cereal import custom
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.common.params import Params
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.longcontrol import LongCtrlState
@@ -15,10 +15,6 @@ from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDX
 from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N, get_accel_from_plan
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.controls.lib.speed_limit_resolver import SpeedLimitResolver
-from openpilot.selfdrive.controls.lib.speed_limit_assist import SpeedLimitAssist
-
-LongitudinalPlanSourceSP = custom.LongitudinalPlanSP.LongitudinalPlanSource
 
 A_CRUISE_MAX_VALS = [1.6, 1.2, 0.8, 0.6]
 A_CRUISE_MAX_BP = [0., 10.0, 25., 40.]
@@ -64,11 +60,8 @@ class LongitudinalPlanner:
     self.output_a_target = 0.0
     self.output_should_stop = False
 
-    self.resolver = SpeedLimitResolver()
-    self.sla = SpeedLimitAssist()
-    self.sp_source = LongitudinalPlanSourceSP.cruise
-    self.sp_v_target = 0.
-    self.sp_a_target = 0.
+    self.params = Params()
+    self.speed_limit_control_enabled = self.params.get_bool("SpeedLimitControl")
 
     self.v_desired_trajectory = np.zeros(CONTROL_N)
     self.a_desired_trajectory = np.zeros(CONTROL_N)
@@ -136,24 +129,12 @@ class LongitudinalPlanner:
       clipped_accel_coast_interp = np.interp(v_ego, [MIN_ALLOW_THROTTLE_SPEED, MIN_ALLOW_THROTTLE_SPEED*2], [accel_clip[1], clipped_accel_coast])
       accel_clip[1] = min(accel_clip[1], clipped_accel_coast_interp)
 
-    # xnor: Speed Limit Control - resolve current limit from mapd, let SLA offer a lower target
-    CS = sm['carState']
-    v_cruise_cluster_kph = min(CS.vCruiseCluster, V_CRUISE_MAX)
-    v_cruise_cluster = v_cruise_cluster_kph * CV.KPH_TO_MS
-
-    self.resolver.update(v_ego, sm)
-    has_speed_limit = self.resolver.speed_limit_valid or self.resolver.speed_limit_last_valid
-    self.sla.update_car_state(CS)
-    self.sla.update(sm['carControl'].enabled, v_ego, self.a_desired, v_cruise_cluster, self.resolver.speed_limit,
-                     self.resolver.speed_limit_final_last, has_speed_limit, self.resolver.distance)
-
-    sp_targets = {
-      LongitudinalPlanSourceSP.cruise: v_cruise,
-      LongitudinalPlanSourceSP.speedLimitAssist: self.sla.output_v_target,
-    }
-    self.sp_source = min(sp_targets, key=lambda k: sp_targets[k])
-    self.sp_v_target = v_cruise = sp_targets[self.sp_source]
-    self.sp_a_target = self.sla.output_a_target if self.sp_source == LongitudinalPlanSourceSP.speedLimitAssist else self.a_desired
+    # xnor: Speed Limit Control - mapd resolves the limit and computes a suggested max
+    # speed itself (including its own accept/confirm logic); we just cap v_cruise with it.
+    if self.speed_limit_control_enabled:
+      mapd_out = sm['mapdOut']
+      if mapd_out.tileLoaded and mapd_out.suggestedSpeed > 0.:
+        v_cruise = min(v_cruise, mapd_out.suggestedSpeed)
 
     if force_slow_decel:
       v_cruise = 0.0
@@ -220,35 +201,3 @@ class LongitudinalPlanner:
     longitudinalPlan.allowThrottle = bool(self.allow_throttle)
 
     pm.send('longitudinalPlan', plan_send)
-
-    self.publish_sp(sm, pm)
-
-  def publish_sp(self, sm, pm):
-    plan_sp_send = messaging.new_message('longitudinalPlanSP')
-    plan_sp_send.valid = sm.all_checks(service_list=['carState', 'controlsState'])
-
-    longitudinalPlanSP = plan_sp_send.longitudinalPlanSP
-    longitudinalPlanSP.longitudinalPlanSource = self.sp_source
-    longitudinalPlanSP.vTarget = float(self.sp_v_target)
-    longitudinalPlanSP.aTarget = float(self.sp_a_target)
-
-    speedLimit = longitudinalPlanSP.speedLimit
-    resolver = speedLimit.resolver
-    resolver.speedLimit = float(self.resolver.speed_limit)
-    resolver.speedLimitLast = float(self.resolver.speed_limit_last)
-    resolver.speedLimitFinal = float(self.resolver.speed_limit_final)
-    resolver.speedLimitFinalLast = float(self.resolver.speed_limit_final_last)
-    resolver.speedLimitValid = self.resolver.speed_limit_valid
-    resolver.speedLimitLastValid = self.resolver.speed_limit_last_valid
-    resolver.speedLimitOffset = float(self.resolver.speed_limit_offset)
-    resolver.distToSpeedLimit = float(self.resolver.distance)
-    resolver.source = self.resolver.source
-
-    assist = speedLimit.assist
-    assist.state = self.sla.state
-    assist.enabled = self.sla.is_enabled
-    assist.active = self.sla.is_active
-    assist.vTarget = float(self.sla.output_v_target)
-    assist.aTarget = float(self.sla.output_a_target)
-
-    pm.send('longitudinalPlanSP', plan_sp_send)

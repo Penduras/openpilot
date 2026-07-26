@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 import pyray as rl
 
-from cereal import custom
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -12,19 +11,17 @@ from openpilot.system.ui.lib.text_measure import measure_text_cached
 from openpilot.system.ui.widgets import Widget
 
 # xnor: adapted from sunnypilot's selfdrive/ui/sunnypilot/onroad/speed_limit.py (already
-# raylib/pyray-based, so it ports directly onto our mici UI stack). Trimmed: no SpeedLimitMode
-# setting (shows whenever SpeedLimitControl is on), no pre-active up/down arrow icon (would need
-# porting sunnypilot's PNG assets - the sign's own pulsing fade already signals preActive).
+# raylib/pyray-based, so it ports directly onto our mici UI stack), then reworked to read
+# mapd v2's MapdOut cereal message directly (mapd handles resolution + accept/confirm
+# internally now, see selfdrive/mapd/mapd_config.py). Trimmed: no pre-active up/down arrow
+# icon (would need porting sunnypilot's PNG assets - the sign's own pulsing fade already
+# signals "awaiting accept").
 
 METER_TO_FOOT = 3.28084
 METER_TO_MILE = 0.000621371
-KM_TO_MILE = 0.621371
 
 SIGN_WIDTH = 108
 SIGN_HEIGHT = 108
-
-AssistState = custom.LongitudinalPlanSP.SpeedLimit.AssistState
-SpeedLimitSource = custom.LongitudinalPlanSP.SpeedLimit.Source
 
 
 @dataclass(frozen=True)
@@ -38,8 +35,8 @@ class Colors:
   MUTCD_LINES = rl.Color(255, 255, 255, 100)
 
 
-class _PreActiveFadeAnimator:
-  """Pulses while the preActive prompt is showing, otherwise fully opaque."""
+class _PendingFadeAnimator:
+  """Pulses while a new speed limit is awaiting driver acceptance."""
 
   def __init__(self, target_fps: int, duration_on: float = 0.75, rc: float = 0.05):
     self._filter = FirstOrderFilter(1.0, rc, 1 / target_fps)
@@ -67,16 +64,12 @@ class SpeedLimitSignRenderer(Widget):
   def __init__(self):
     super().__init__()
     self.speed_limit = 0.0
-    self.speed_limit_last = 0.0
-    self.speed_limit_valid = False
-    self.speed_limit_last_valid = False
-    self.speed_limit_final_last = 0.0
-    self.speed_limit_source = SpeedLimitSource.none
-    self.assist_state = AssistState.disabled
+    self.suggested_speed = 0.0
+    self.tile_loaded = False
+    self.speed_limit_accepted = False
 
-    self.speed_limit_ahead = 0.0
-    self.speed_limit_ahead_dist = 0.0
-    self.speed_limit_ahead_valid = False
+    self.next_speed_limit = 0.0
+    self.next_speed_limit_distance = 0.0
 
     self.speed: float = 0.0
     self.v_ego_cluster_seen: bool = False
@@ -85,7 +78,7 @@ class SpeedLimitSignRenderer(Widget):
     self._font_demi = gui_app.font(FontWeight.SEMI_BOLD)
     self._font_norm = gui_app.font(FontWeight.NORMAL)
 
-    self._pre_active_fade = _PreActiveFadeAnimator(gui_app.target_fps, duration_on=0.75, rc=0.05)
+    self._pending_fade = _PendingFadeAnimator(gui_app.target_fps, duration_on=0.75, rc=0.05)
 
   @property
   def _speed_conv(self):
@@ -97,26 +90,18 @@ class SpeedLimitSignRenderer(Widget):
       self.speed = 0.0
       return
 
-    if sm.updated["longitudinalPlanSP"]:
-      lp_sp = sm["longitudinalPlanSP"]
-      resolver = lp_sp.speedLimit.resolver
-      assist = lp_sp.speedLimit.assist
+    if sm.updated["mapdOut"]:
+      mapd_out = sm["mapdOut"]
+      self.speed_limit = mapd_out.speedLimit * self._speed_conv
+      self.suggested_speed = mapd_out.speedLimitSuggestedSpeed * self._speed_conv
+      self.tile_loaded = mapd_out.tileLoaded
+      self.speed_limit_accepted = mapd_out.speedLimitAccepted
 
-      self.speed_limit = resolver.speedLimit * self._speed_conv
-      self.speed_limit_last = resolver.speedLimitLast * self._speed_conv
-      self.speed_limit_valid = resolver.speedLimitValid
-      self.speed_limit_last_valid = resolver.speedLimitLastValid
-      self.speed_limit_final_last = resolver.speedLimitFinalLast * self._speed_conv
-      self.speed_limit_source = resolver.source
-      self.assist_state = assist.state
+      self.next_speed_limit = mapd_out.nextSpeedLimit * self._speed_conv
+      self.next_speed_limit_distance = mapd_out.nextSpeedLimitDistance
 
-    if sm.updated["liveMapDataSP"]:
-      lmd = sm["liveMapDataSP"]
-      self.speed_limit_ahead_valid = lmd.speedLimitAheadValid
-      self.speed_limit_ahead = lmd.speedLimitAhead * self._speed_conv
-      self.speed_limit_ahead_dist = lmd.speedLimitAheadDistance
-
-    self._pre_active_fade.update(self.assist_state == AssistState.preActive)
+    has_limit = self.tile_loaded and self.speed_limit > 0.
+    self._pending_fade.update(has_limit and not self.speed_limit_accepted)
 
     car_state = sm["carState"]
     self.v_ego_cluster_seen = self.v_ego_cluster_seen or car_state.vEgoCluster != 0.0
@@ -136,17 +121,17 @@ class SpeedLimitSignRenderer(Widget):
     y = rect.y + 45
 
     sign_rect = rl.Rectangle(x, y, SIGN_WIDTH, SIGN_HEIGHT)
-    alpha = self._pre_active_fade.alpha
+    alpha = self._pending_fade.alpha
 
     self._draw_sign(sign_rect, alpha)
     self._draw_ahead_info(sign_rect)
 
   def _draw_sign(self, rect, alpha=1.0) -> None:
-    has_limit = self.speed_limit_valid or self.speed_limit_last_valid
-    is_overspeed = has_limit and round(self.speed_limit_final_last) < round(self.speed)
+    has_limit = self.tile_loaded and self.speed_limit > 0.
+    is_overspeed = has_limit and round(self.suggested_speed) < round(self.speed)
 
-    limit_str = str(round(self.speed_limit_last)) if has_limit else "---"
-    txt_color = Colors.RED if is_overspeed else (Colors.BLACK if self.speed_limit_valid else Colors.GREY)
+    limit_str = str(round(self.speed_limit)) if has_limit else "---"
+    txt_color = Colors.RED if is_overspeed else (Colors.BLACK if has_limit else Colors.GREY)
 
     if ui_state.is_metric:
       self._render_vienna(rect, limit_str, txt_color, alpha)
@@ -180,10 +165,9 @@ class SpeedLimitSignRenderer(Widget):
     self._draw_text_centered(self._font_bold, val, 52, rl.Vector2(rect.x + rect.width / 2, rect.y + 70), text_color)
 
   def _draw_ahead_info(self, sign_rect) -> None:
-    source_is_map = self.speed_limit_source == SpeedLimitSource.map
-    valid = self.speed_limit_ahead_valid and self.speed_limit_ahead > 0 and self.speed_limit_ahead != self.speed_limit
+    valid = self.next_speed_limit > 0 and self.next_speed_limit != self.speed_limit
 
-    if not (valid and source_is_map):
+    if not valid:
       return
 
     rect = rl.Rectangle(sign_rect.x + (sign_rect.width - 130) / 2, sign_rect.y + sign_rect.height + 8, 130, 110)
@@ -192,8 +176,8 @@ class SpeedLimitSignRenderer(Widget):
 
     mid_x = rect.x + rect.width / 2
     self._draw_text_centered(self._font_demi, "AHEAD", 26, rl.Vector2(mid_x, rect.y + 20), Colors.GREY)
-    self._draw_text_centered(self._font_bold, str(round(self.speed_limit_ahead)), 46, rl.Vector2(mid_x, rect.y + 58), Colors.WHITE)
-    self._draw_text_centered(self._font_norm, self._format_dist(self.speed_limit_ahead_dist), 24, rl.Vector2(mid_x, rect.y + 92), Colors.GREY)
+    self._draw_text_centered(self._font_bold, str(round(self.next_speed_limit)), 46, rl.Vector2(mid_x, rect.y + 58), Colors.WHITE)
+    self._draw_text_centered(self._font_norm, self._format_dist(self.next_speed_limit_distance), 24, rl.Vector2(mid_x, rect.y + 92), Colors.GREY)
 
   @staticmethod
   def _format_dist(d) -> str:
