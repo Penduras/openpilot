@@ -64,8 +64,8 @@ class OsmMapData:
     return str(self.mem_params.get("RoadName") or "")
 
   def get_next_speed_limit_and_distance(self) -> tuple[float, float]:
-    next_speed_limit_section_str = self.mem_params.get("NextMapSpeedLimit")
-    next_speed_limit_section = json.loads(next_speed_limit_section_str) if next_speed_limit_section_str else {}
+    # NextMapSpeedLimit is a JSON-typed param - Params.get() already returns a decoded dict.
+    next_speed_limit_section = self.mem_params.get("NextMapSpeedLimit") or {}
     next_speed_limit = next_speed_limit_section.get('speedlimit', 0.0)
     next_speed_limit_latitude = next_speed_limit_section.get('latitude')
     next_speed_limit_longitude = next_speed_limit_section.get('longitude')
