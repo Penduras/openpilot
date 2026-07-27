@@ -243,6 +243,15 @@ class ModularAssistiveDrivingSystem:
       if be.type == ButtonType.cancel:
         if not self.selfdrive.enabled and self.selfdrive.enabled_prev:
           self.events.add(EventName.manualLongitudinalRequired)
+        # xnor: cancel always disengages longitudinal fully, so mirror the LKAS button's
+        # "already off" branch (lkasDisable) - cancel has no partial/lateral-only case.
+        # Without this, MADS never learns cruise was cancelled (cruiseState.available's
+        # own fallback is gated off for tesla via no_main_cruise below), keeps trying to
+        # steer, the real EPAS refuses once DI_cruiseState is OFF, and that surfaces as a
+        # steerFault -> SOFT_DISABLE "TAKE CONTROL IMMEDIATELY" alert instead of a clean
+        # disengage chime.
+        if be.pressed and self.enabled and not self.selfdrive.enabled:
+          self.events.add(EventName.lkasDisable)
       if be.type == ButtonType.lkas and be.pressed and (CS.cruiseState.available or self.allow_always):
         if self.enabled:
           if self.selfdrive.enabled:
