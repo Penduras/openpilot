@@ -31,6 +31,7 @@ def build_settings(params: Params) -> dict:
     "speed_limit_change_requires_accept": True,
     "adjust_set_speed_to_accept_speed_limit": True,
     "hold_last_seen_speed_limit": True,
+    "map_curve_speed_control_enabled": params.get_bool("SmartCruiseControlMap"),
   }
 
 

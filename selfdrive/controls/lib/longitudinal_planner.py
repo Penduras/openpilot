@@ -61,7 +61,10 @@ class LongitudinalPlanner:
     self.output_should_stop = False
 
     self.params = Params()
-    self.speed_limit_control_enabled = self.params.get_bool("SpeedLimitControl")
+    # xnor: mapd folds speed-limit and map-curve control into one suggestedSpeed output,
+    # so either toggle enables reading it - mapd itself won't apply either calculation
+    # unless the matching setting was written to MapdSettings (see mapd_config.py).
+    self.mapd_speed_control_enabled = self.params.get_bool("SpeedLimitControl") or self.params.get_bool("SmartCruiseControlMap")
 
     self.v_desired_trajectory = np.zeros(CONTROL_N)
     self.a_desired_trajectory = np.zeros(CONTROL_N)
@@ -129,9 +132,10 @@ class LongitudinalPlanner:
       clipped_accel_coast_interp = np.interp(v_ego, [MIN_ALLOW_THROTTLE_SPEED, MIN_ALLOW_THROTTLE_SPEED*2], [accel_clip[1], clipped_accel_coast])
       accel_clip[1] = min(accel_clip[1], clipped_accel_coast_interp)
 
-    # xnor: Speed Limit Control - mapd resolves the limit and computes a suggested max
-    # speed itself (including its own accept/confirm logic); we just cap v_cruise with it.
-    if self.speed_limit_control_enabled:
+    # xnor: Speed Limit Control / Smart Cruise Control - Map - mapd resolves the limit and/or
+    # upcoming curve speed and computes a suggested max speed itself (including its own
+    # accept/confirm logic); we just cap v_cruise with it.
+    if self.mapd_speed_control_enabled:
       mapd_out = sm['mapdOut']
       if mapd_out.tileLoaded and mapd_out.suggestedSpeed > 0.:
         v_cruise = min(v_cruise, mapd_out.suggestedSpeed)
