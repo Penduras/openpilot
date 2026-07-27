@@ -54,11 +54,17 @@ def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
 def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started
 
+def mapd_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
+  # xnor: don't even start mapd/mapd_config unless a feature that needs it is on - also
+  # the emergency kill switch for the mapd/mapd_config/loggerd SIGABRT crash loop found
+  # during real driving (2026-07-27), until the root cause is confirmed and fixed.
+  return params.get_bool("SpeedLimitControl") or params.get_bool("SmartCruiseControlMap")
+
 def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
   # xnor: gate on the binary itself, not just its directory - mapd_config.py downloads it
   # in the background and this must stay False until that download actually finishes,
   # since NativeProcess never auto-restarts after a failed launch (restart_if_crash=False).
-  return bool(os.path.exists(MAPD_PATH))
+  return mapd_enabled(started, params, CP) and bool(os.path.exists(MAPD_PATH))
 
 def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return not started
@@ -125,7 +131,7 @@ procs = [
   # regardless. NativeProcess's constructor doesn't take restart_if_crash, so it's set
   # afterward (it's just a plain attribute on the ManagerProcess base class).
   mapd_native_process,
-  PythonProcess("mapd_config", "selfdrive.mapd.mapd_config", always_run, restart_if_crash=True),
+  PythonProcess("mapd_config", "selfdrive.mapd.mapd_config", mapd_enabled, restart_if_crash=True),
 
   # debug procs
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),
