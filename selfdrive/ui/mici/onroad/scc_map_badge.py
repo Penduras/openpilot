@@ -18,7 +18,7 @@ PADDING_V = 5
 class SccMapBadge(Widget):
   def __init__(self):
     super().__init__()
-    self.enabled = False
+    self.scc_map_enabled = False
     self.active = False
     self.long_override = False
 
@@ -26,7 +26,7 @@ class SccMapBadge(Widget):
 
   def _update_state(self) -> None:
     sm = ui_state.sm
-    self.enabled = ui_state.params.get_bool("SmartCruiseControlMap")
+    self.scc_map_enabled = ui_state.params.get_bool("SmartCruiseControlMap")
 
     if sm.updated["mapdOut"]:
       self.active = sm["mapdOut"].mapCurveSpeed > 0.
@@ -35,7 +35,7 @@ class SccMapBadge(Widget):
       self.long_override = sm["carControl"].cruiseControl.override
 
   def _render(self, rect: rl.Rectangle) -> None:
-    if not self.enabled:
+    if not self.scc_map_enabled:
       return
 
     text = "SCC-M"
