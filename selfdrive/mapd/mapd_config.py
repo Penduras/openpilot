@@ -20,14 +20,20 @@ from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 # up whatever OSM data is currently hosted upstream) but only while on an unmetered
 # wifi/ethernet connection, so it never burns cellular data doing it.
 #
-# It also auto-accepts any new speed limit that's LOWER than the last one the driver
-# accepted - mapd's own speed_limit_change_requires_accept is a blanket flag with no
-# direction awareness, so this bridges "always confirm going faster, never need to
-# confirm going slower". Upward changes are left alone; they still require the driver to
-# either bump the cruise stalk (adjust_set_speed_to_accept_speed_limit) or tap the onroad
-# sign. This needs to react quickly, so the loop runs at TICK_HZ, with the slow tasks
-# (download retry, weekly update check) gated by their own elapsed-time tracking instead
-# of the loop's own rate.
+# It also drives BOTH directions of speed-limit acceptance itself rather than trusting
+# mapd's own accept machinery: mapd v2.1.0's state.go Send() never actually calls
+# output.SetSpeedLimitAccepted(), so mapdOut.speedLimitAccepted is always false (confirmed
+# against mapd's own source), and its internal adjust_set_speed_to_accept_speed_limit
+# stalk-accept path wasn't triggering reliably on a real drive either. So instead:
+#  - a new LOWER resolved limit (mapdOut.speedLimit dropping) is auto-accepted the instant
+#    it's seen, no driver action needed
+#  - a HIGHER resolved limit is accepted only when the driver bumps the cruise stalk
+#    (carState.vCruise increasing) - replicated here in Python instead of left to mapd's
+#    own adjust_set_speed_to_accept_speed_limit, which is turned off below
+# Both paths send the exact same mapdIn{acceptSpeedLimit} message the onroad sign's
+# tap-to-accept uses, which IS confirmed working end-to-end. This needs to react quickly,
+# so the loop runs at TICK_HZ, with the slow tasks (download retry, weekly update check)
+# gated by their own elapsed-time tracking instead of the loop's own rate.
 
 MapdInputType = custom.MapdInputType
 NetworkType = log.DeviceState.NetworkType
@@ -41,7 +47,7 @@ def build_settings(params: Params) -> dict:
   return {
     "speed_limit_control_enabled": params.get_bool("SpeedLimitControl"),
     "speed_limit_change_requires_accept": True,
-    "adjust_set_speed_to_accept_speed_limit": True,
+    "adjust_set_speed_to_accept_speed_limit": False,
     "press_gas_to_override_speed_limit": True,
     "hold_last_seen_speed_limit": True,
     "map_curve_speed_control_enabled": params.get_bool("SmartCruiseControlMap"),
@@ -72,21 +78,28 @@ def update_check_due(params: Params) -> bool:
   return last_check is None or (now - last_check) > UPDATE_CHECK_INTERVAL
 
 
-class DownwardAutoAccept:
-  """Auto-accepts a new speed limit the instant it's lower than the last accepted one."""
+class SpeedLimitAcceptWatcher:
+  """Auto-accepts a lower resolved speed limit immediately; accepts a higher one only
+  when the driver bumps the cruise stalk (carState.vCruise changing)."""
 
   def __init__(self):
-    self.last_accepted: float | None = None
+    self.last_limit: float | None = None
+    self.last_v_cruise: float | None = None
 
-  def update(self, sm: messaging.SubMaster, pm: messaging.PubMaster) -> None:
-    mapd_out = sm['mapdOut']
-    if not (mapd_out.tileLoaded and mapd_out.speedLimit > 0.):
+  def update(self, sm: messaging.SubMaster, pm: messaging.PubMaster, params: Params) -> None:
+    if not params.get_bool("SpeedLimitControl"):
       return
 
-    if mapd_out.speedLimitAccepted:
-      self.last_accepted = mapd_out.speedLimit
-    elif self.last_accepted is not None and mapd_out.speedLimit < self.last_accepted:
+    mapd_out = sm['mapdOut']
+    if mapd_out.tileLoaded and mapd_out.speedLimit > 0.:
+      if self.last_limit is not None and mapd_out.speedLimit < self.last_limit:
+        send_accept_speed_limit(pm)
+      self.last_limit = mapd_out.speedLimit
+
+    v_cruise = sm['carState'].vCruise
+    if self.last_v_cruise is not None and v_cruise > self.last_v_cruise:
       send_accept_speed_limit(pm)
+    self.last_v_cruise = v_cruise
 
 
 def main():
@@ -96,8 +109,8 @@ def main():
   MapdInstallManager().check_and_download()
 
   pm = messaging.PubMaster(['mapdIn'])
-  sm = messaging.SubMaster(['mapdExtendedOut', 'mapdOut', 'deviceState'])
-  auto_accept = DownwardAutoAccept()
+  sm = messaging.SubMaster(['mapdExtendedOut', 'mapdOut', 'deviceState', 'carState'])
+  accept_watcher = SpeedLimitAcceptWatcher()
 
   last_retry = 0.
   rk = Ratekeeper(TICK_HZ, print_delay_threshold=None)
@@ -114,7 +127,7 @@ def main():
         last_retry = now
         params.put("OsmLastUpdateCheck", datetime.datetime.now(datetime.UTC).replace(tzinfo=None))
 
-    auto_accept.update(sm, pm)
+    accept_watcher.update(sm, pm, params)
     rk.keep_time()
 
 
