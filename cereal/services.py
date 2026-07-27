@@ -50,7 +50,12 @@ _services: dict[str, tuple] = {
   "carOutput": (True, 100., 10),
   "longitudinalPlan": (True, 20., 10),
   "mapdOut": (True, 20., 20, QueueSize.MEDIUM),
-  "mapdExtendedOut": (True, 1., 1),
+  # xnor: was defaulting to SMALL (250KB) - the mapd binary itself SIGBUS-faulted inside its
+  # own msgq publisher (gomsgq MsgqPublisher.Send, extended_state.go) writing this message,
+  # a classic signature of the writer's shared-memory mapping being smaller than what it
+  # expects. Confirmed via a real Go crash dump captured from a manual reproduction; this is
+  # the only one of the three mapd services that didn't already use MEDIUM.
+  "mapdExtendedOut": (True, 1., 1, QueueSize.MEDIUM),
   "mapdIn": (True, 0., 1, QueueSize.MEDIUM),
   "driverAssistance": (True, 20., 20),
   "procLog": (True, 0.5, 15, QueueSize.BIG),
