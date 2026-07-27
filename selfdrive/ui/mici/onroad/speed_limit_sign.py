@@ -3,9 +3,9 @@ from dataclasses import dataclass
 import pyray as rl
 
 import cereal.messaging as messaging
-from cereal import custom
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
+from openpilot.selfdrive.mapd.actions import send_accept_speed_limit
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
@@ -101,17 +101,12 @@ class SpeedLimitSignRenderer(Widget):
     y = rect.y + 45
     return rl.Rectangle(x, y, SIGN_WIDTH, SIGN_HEIGHT)
 
-  def _send_accept_speed_limit(self) -> None:
-    msg = messaging.new_message('mapdIn')
-    msg.mapdIn.type = custom.MapdInputType.acceptSpeedLimit
-    self._pm.send('mapdIn', msg)
-
   def _handle_taps(self, sign_rect: rl.Rectangle) -> None:
     if not (self.tile_loaded and self.speed_limit > 0.):
       return
     for mouse_event in gui_app.mouse_events:
       if mouse_event.left_released and rl.check_collision_point_rec(mouse_event.pos, sign_rect):
-        self._send_accept_speed_limit()
+        send_accept_speed_limit(self._pm)
         break
 
   def _update_state(self) -> None:

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import datetime
+import time
 
 import cereal.messaging as messaging
 from cereal import custom, log
 from openpilot.common.params import Params
 from openpilot.common.realtime import Ratekeeper
 from openpilot.selfdrive.mapd import OSM_DOWNLOAD_PATH
+from openpilot.selfdrive.mapd.actions import send_accept_speed_limit
 from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 
 # xnor: mapd v2 has no persistent "download this region" param - a download is only
@@ -17,10 +19,20 @@ from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 # Once initial setup is done, it also re-triggers the same download periodically (picking
 # up whatever OSM data is currently hosted upstream) but only while on an unmetered
 # wifi/ethernet connection, so it never burns cellular data doing it.
+#
+# It also auto-accepts any new speed limit that's LOWER than the last one the driver
+# accepted - mapd's own speed_limit_change_requires_accept is a blanket flag with no
+# direction awareness, so this bridges "always confirm going faster, never need to
+# confirm going slower". Upward changes are left alone; they still require the driver to
+# either bump the cruise stalk (adjust_set_speed_to_accept_speed_limit) or tap the onroad
+# sign. This needs to react quickly, so the loop runs at TICK_HZ, with the slow tasks
+# (download retry, weekly update check) gated by their own elapsed-time tracking instead
+# of the loop's own rate.
 
 MapdInputType = custom.MapdInputType
 NetworkType = log.DeviceState.NetworkType
-RETRY_PERIOD = 15.  # seconds
+TICK_HZ = 10.
+RETRY_PERIOD = 15.  # seconds, between download-trigger retries
 UPDATE_CHECK_INTERVAL = datetime.timedelta(days=7)  # re-check for fresher map data weekly
 WIFI_LIKE_NETWORKS = (NetworkType.wifi, NetworkType.ethernet)
 
@@ -59,6 +71,23 @@ def update_check_due(params: Params) -> bool:
   return last_check is None or (now - last_check) > UPDATE_CHECK_INTERVAL
 
 
+class DownwardAutoAccept:
+  """Auto-accepts a new speed limit the instant it's lower than the last accepted one."""
+
+  def __init__(self):
+    self.last_accepted: float | None = None
+
+  def update(self, sm: messaging.SubMaster, pm: messaging.PubMaster) -> None:
+    mapd_out = sm['mapdOut']
+    if not (mapd_out.tileLoaded and mapd_out.speedLimit > 0.):
+      return
+
+    if mapd_out.speedLimitAccepted:
+      self.last_accepted = mapd_out.speedLimit
+    elif self.last_accepted is not None and mapd_out.speedLimit < self.last_accepted:
+      send_accept_speed_limit(pm)
+
+
 def main():
   params = Params()
   params.put("MapdSettings", build_settings(params))
@@ -66,16 +95,25 @@ def main():
   MapdInstallManager().check_and_download()
 
   pm = messaging.PubMaster(['mapdIn'])
-  sm = messaging.SubMaster(['mapdExtendedOut', 'deviceState'])
+  sm = messaging.SubMaster(['mapdExtendedOut', 'mapdOut', 'deviceState'])
+  auto_accept = DownwardAutoAccept()
 
-  rk = Ratekeeper(1 / RETRY_PERIOD, print_delay_threshold=None)
+  last_retry = 0.
+  rk = Ratekeeper(TICK_HZ, print_delay_threshold=None)
   while True:
     sm.update(0)
-    if not download_in_progress_or_done(sm):
-      send_download_trigger(pm)
-    elif update_check_due(params) and on_unmetered_wifi(sm):
-      send_download_trigger(pm)
-      params.put("OsmLastUpdateCheck", datetime.datetime.now(datetime.UTC).replace(tzinfo=None))
+    now = time.monotonic()
+
+    if now - last_retry > RETRY_PERIOD:
+      if not download_in_progress_or_done(sm):
+        send_download_trigger(pm)
+        last_retry = now
+      elif update_check_due(params) and on_unmetered_wifi(sm):
+        send_download_trigger(pm)
+        last_retry = now
+        params.put("OsmLastUpdateCheck", datetime.datetime.now(datetime.UTC).replace(tzinfo=None))
+
+    auto_accept.update(sm, pm)
     rk.keep_time()
 
 
