@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 import pyray as rl
 
+import cereal.messaging as messaging
+from cereal import custom
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -16,6 +18,13 @@ from openpilot.system.ui.widgets import Widget
 # internally now, see selfdrive/mapd/mapd_config.py). Trimmed: no pre-active up/down arrow
 # icon (would need porting sunnypilot's PNG assets - the sign's own pulsing fade already
 # signals "awaiting accept").
+#
+# Tapping the sign sends mapd a MapdIn{type: acceptSpeedLimit} message, which accepts
+# whatever speed limit it's currently pending on - the same effect as bumping the cruise
+# set speed once (adjust_set_speed_to_accept_speed_limit), just from the touchscreen.
+# NOTE: this widget does its OWN touch hit-testing scoped to the small sign box, rather
+# than using Widget.set_click_callback - the base class's hit-test uses self._rect, which
+# here is the full camera-view rect passed in by the parent, not the little sign we draw.
 
 METER_TO_FOOT = 3.28084
 METER_TO_MILE = 0.000621371
@@ -80,9 +89,30 @@ class SpeedLimitSignRenderer(Widget):
 
     self._pending_fade = _PendingFadeAnimator(gui_app.target_fps, duration_on=0.75, rc=0.05)
 
+    self._pm = messaging.PubMaster(['mapdIn'])
+
   @property
   def _speed_conv(self):
     return CV.MS_TO_KPH if ui_state.is_metric else CV.MS_TO_MPH
+
+  @staticmethod
+  def _sign_rect(rect: rl.Rectangle) -> rl.Rectangle:
+    x = rect.x + rect.width - SIGN_WIDTH - 30
+    y = rect.y + 45
+    return rl.Rectangle(x, y, SIGN_WIDTH, SIGN_HEIGHT)
+
+  def _send_accept_speed_limit(self) -> None:
+    msg = messaging.new_message('mapdIn')
+    msg.mapdIn.type = custom.MapdInputType.acceptSpeedLimit
+    self._pm.send('mapdIn', msg)
+
+  def _handle_taps(self, sign_rect: rl.Rectangle) -> None:
+    if not (self.tile_loaded and self.speed_limit > 0.):
+      return
+    for mouse_event in gui_app.mouse_events:
+      if mouse_event.left_released and rl.check_collision_point_rec(mouse_event.pos, sign_rect):
+        self._send_accept_speed_limit()
+        break
 
   def _update_state(self) -> None:
     sm = ui_state.sm
@@ -108,6 +138,9 @@ class SpeedLimitSignRenderer(Widget):
     v_ego = car_state.vEgoCluster if self.v_ego_cluster_seen else car_state.vEgo
     self.speed = max(0.0, v_ego * self._speed_conv)
 
+    if ui_state.params.get_bool("SpeedLimitControl"):
+      self._handle_taps(self._sign_rect(self.rect))
+
   @staticmethod
   def _draw_text_centered(font, text, size, pos_center, color):
     sz = measure_text_cached(font, text, size)
@@ -117,10 +150,7 @@ class SpeedLimitSignRenderer(Widget):
     if not ui_state.params.get_bool("SpeedLimitControl"):
       return
 
-    x = rect.x + rect.width - SIGN_WIDTH - 30
-    y = rect.y + 45
-
-    sign_rect = rl.Rectangle(x, y, SIGN_WIDTH, SIGN_HEIGHT)
+    sign_rect = self._sign_rect(rect)
     alpha = self._pending_fade.alpha
 
     self._draw_sign(sign_rect, alpha)
