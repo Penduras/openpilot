@@ -61,10 +61,12 @@ class LongitudinalPlanner:
     self.output_should_stop = False
 
     self.params = Params()
-    # xnor: mapd folds speed-limit and map-curve control into one suggestedSpeed output,
-    # so either toggle enables reading it - mapd itself won't apply either calculation
-    # unless the matching setting was written to MapdSettings (see mapd_config.py).
-    self.mapd_speed_control_enabled = self.params.get_bool("SpeedLimitControl") or self.params.get_bool("SmartCruiseControlMap")
+    # xnor: mapd folds speed-limit, map-curve, and vision-curve control into one
+    # suggestedSpeed output, so any toggle enables reading it - mapd itself won't apply
+    # a given calculation unless the matching setting was written to MapdSettings (see
+    # mapd_config.py).
+    self.mapd_speed_control_enabled = (self.params.get_bool("SpeedLimitControl") or self.params.get_bool("SmartCruiseControlMap")
+                                        or self.params.get_bool("SmartCruiseControlVision"))
 
     self.v_desired_trajectory = np.zeros(CONTROL_N)
     self.a_desired_trajectory = np.zeros(CONTROL_N)
@@ -132,12 +134,17 @@ class LongitudinalPlanner:
       clipped_accel_coast_interp = np.interp(v_ego, [MIN_ALLOW_THROTTLE_SPEED, MIN_ALLOW_THROTTLE_SPEED*2], [accel_clip[1], clipped_accel_coast])
       accel_clip[1] = min(accel_clip[1], clipped_accel_coast_interp)
 
-    # xnor: Speed Limit Control / Smart Cruise Control - Map - mapd resolves the limit and/or
-    # upcoming curve speed and computes a suggested max speed itself (including its own
-    # accept/confirm logic); we just cap v_cruise with it.
+    # xnor: Speed Limit Control / Smart Cruise Control - Map/Vision - mapd resolves the
+    # limit and/or upcoming curve speed (map- or vision-derived) and computes a suggested
+    # max speed itself (including its own accept/confirm logic); we just cap v_cruise with
+    # it. Deliberately NOT gated on mapdOut.tileLoaded: mapd's vision curve speed comes
+    # straight from modelV2 and has no map-tile dependency (confirmed in mapd's own
+    # SuggestedSpeed()), so gating on tileLoaded would silently disable SCC-Vision outside
+    # the downloaded OSM region. suggestedSpeed defaults to the driver's own vCruise when
+    # nothing is actively constraining it, so this is a no-op cap in that case.
     if self.mapd_speed_control_enabled:
       mapd_out = sm['mapdOut']
-      if mapd_out.tileLoaded and mapd_out.suggestedSpeed > 0.:
+      if mapd_out.suggestedSpeed > 0.:
         v_cruise = min(v_cruise, mapd_out.suggestedSpeed)
 
     if force_slow_decel:

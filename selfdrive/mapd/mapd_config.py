@@ -45,6 +45,7 @@ def build_settings(params: Params) -> dict:
     "press_gas_to_override_speed_limit": True,
     "hold_last_seen_speed_limit": True,
     "map_curve_speed_control_enabled": params.get_bool("SmartCruiseControlMap"),
+    "vision_curve_speed_control_enabled": params.get_bool("SmartCruiseControlVision"),
   }
 
 

@@ -56,9 +56,11 @@ def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
 
 def mapd_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
   # xnor: don't even start mapd/mapd_config unless a feature that needs it is on - also
-  # the emergency kill switch for the mapd/mapd_config/loggerd SIGABRT crash loop found
-  # during real driving (2026-07-27), until the root cause is confirmed and fixed.
-  return params.get_bool("SpeedLimitControl") or params.get_bool("SmartCruiseControlMap")
+  # served as the emergency kill switch for the mapd/mapd_config/loggerd SIGBUS crash loop
+  # found during real driving, root-caused and fixed via the mapdExtendedOut queue size
+  # in cereal/services.py (was defaulting to SMALL, mismatched with mapd's own publisher).
+  return (params.get_bool("SpeedLimitControl") or params.get_bool("SmartCruiseControlMap")
+          or params.get_bool("SmartCruiseControlVision"))
 
 def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
   # xnor: gate on the binary itself, not just its directory - mapd_config.py downloads it
