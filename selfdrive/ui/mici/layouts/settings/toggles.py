@@ -25,6 +25,7 @@ class TogglesLayoutMici(NavScroller):
     speed_limit_toggle = BigParamControl("speed limit control", "SpeedLimitControl", toggle_callback=restart_needed_callback)
     scc_map_toggle = BigParamControl("smart cruise control - map", "SmartCruiseControlMap", toggle_callback=restart_needed_callback)
     scc_vision_toggle = BigParamControl("smart cruise control - vision", "SmartCruiseControlVision", toggle_callback=restart_needed_callback)
+    show_stock_nav_toggle = BigParamControl("show stock nav info (experimental)", "ShowStockNav")
 
     self._scroller.add_widgets([
       self._personality_toggle,
@@ -39,6 +40,7 @@ class TogglesLayoutMici(NavScroller):
       speed_limit_toggle,
       scc_map_toggle,
       scc_vision_toggle,
+      show_stock_nav_toggle,
     ])
 
     # Toggle lists
@@ -54,6 +56,7 @@ class TogglesLayoutMici(NavScroller):
       ("SpeedLimitControl", speed_limit_toggle),
       ("SmartCruiseControlMap", scc_map_toggle),
       ("SmartCruiseControlVision", scc_vision_toggle),
+      ("ShowStockNav", show_stock_nav_toggle),
     )
 
     enable_openpilot.set_enabled(lambda: not ui_state.engaged)

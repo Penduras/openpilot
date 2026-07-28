@@ -115,6 +115,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RecordFrontLock", {PERSISTENT, BOOL}},  // for the internal fleet
     {"SecOCKey", {PERSISTENT | DONT_LOG, STRING}},
     {"ShowDebugInfo", {PERSISTENT, BOOL}},
+    {"ShowStockNav", {PERSISTENT, BOOL, "0"}},
     {"RouteCount", {PERSISTENT, INT, "0"}},
     {"SmartCruiseControlMap", {PERSISTENT, BOOL, "0"}},
     {"SmartCruiseControlVision", {PERSISTENT, BOOL, "0"}},
