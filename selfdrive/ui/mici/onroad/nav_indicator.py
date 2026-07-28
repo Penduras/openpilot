@@ -13,10 +13,9 @@ from openpilot.system.ui.widgets import Widget
 # obvious how little of the signal is actually understood yet, pending real-drive
 # verification that the decoded bits mean what we think they mean.
 
-BOX_HEIGHT = 80
+BOX_HEIGHT = 56
 FONT_SIZE = 32
 LABEL_SIZE = 18
-DIAG_SIZE = 16
 PADDING_H = 20
 
 
@@ -26,7 +25,6 @@ class NavIndicator(Widget):
     self.route_active = False
     self.next_maneuver_distance = 0.0
     self.next_maneuver_left = False
-    self.controlled_access = False
 
     self._font_bold = gui_app.font(FontWeight.BOLD)
     self._font_demi = gui_app.font(FontWeight.SEMI_BOLD)
@@ -38,7 +36,6 @@ class NavIndicator(Widget):
       self.route_active = cs.stockNavRouteActive
       self.next_maneuver_distance = cs.stockNavNextManeuverDistance
       self.next_maneuver_left = cs.stockNavNextManeuverLeft
-      self.controlled_access = cs.stockNavControlledAccess
 
   def _format_distance(self) -> str:
     d = self.next_maneuver_distance
@@ -54,23 +51,17 @@ class NavIndicator(Widget):
 
     label = "NAV ←" if self.next_maneuver_left else "NAV"
     dist_text = self._format_distance()
-    # xnor: temporary diagnostic line - see if nextManeuverDistance pinning at its 300m
-    # ceiling correlates with DAS not considering the road a controlled-access highway
-    diag_text = "highway: yes" if self.controlled_access else "highway: no"
 
     label_sz = measure_text_cached(self._font_demi, label, LABEL_SIZE)
     dist_sz = measure_text_cached(self._font_bold, dist_text, FONT_SIZE)
-    diag_sz = measure_text_cached(self._font_demi, diag_text, DIAG_SIZE)
-    box_width = int(max(label_sz.x, dist_sz.x, diag_sz.x) + PADDING_H * 2)
+    box_width = int(max(label_sz.x, dist_sz.x) + PADDING_H * 2)
 
     box_x = rect.x + (rect.width - box_width) / 2
     box_y = rect.y + 20
 
     box = rl.Rectangle(box_x, box_y, box_width, BOX_HEIGHT)
-    rl.draw_rectangle_rounded(box, 0.2, 10, rl.Color(0, 0, 0, 180))
+    rl.draw_rectangle_rounded(box, 0.25, 10, rl.Color(0, 0, 0, 180))
 
     cx = box_x + box_width / 2
     rl.draw_text_ex(self._font_demi, label, rl.Vector2(cx - label_sz.x / 2, box_y + 4), LABEL_SIZE, 0, rl.Color(180, 180, 180, 255))
     rl.draw_text_ex(self._font_bold, dist_text, rl.Vector2(cx - dist_sz.x / 2, box_y + 24), FONT_SIZE, 0, rl.WHITE)
-    diag_color = rl.Color(120, 220, 120, 255) if self.controlled_access else rl.Color(220, 120, 120, 255)
-    rl.draw_text_ex(self._font_demi, diag_text, rl.Vector2(cx - diag_sz.x / 2, box_y + 58), DIAG_SIZE, 0, diag_color)
