@@ -25,8 +25,14 @@ from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 # output.SetSpeedLimitAccepted(), so mapdOut.speedLimitAccepted is always false (confirmed
 # against mapd's own source), and its internal adjust_set_speed_to_accept_speed_limit
 # stalk-accept path wasn't triggering reliably on a real drive either. So instead:
-#  - a new LOWER resolved limit (mapdOut.speedLimit dropping) is auto-accepted the instant
-#    it's seen, no driver action needed
+#  - a new LOWER resolved limit is auto-accepted the instant it's seen, no driver action
+#    needed - watches mapdOut.speedLimitSuggestedSpeed rather than the raw
+#    mapdOut.speedLimit, since mapd's own SuggestNewSpeedLimit() (speed_limit.go) already
+#    pre-empts speedLimitSuggestedSpeed to the upcoming lower limit once within braking
+#    distance (slow_down_for_next_speed_limit defaults on, never overridden below), while
+#    speedLimit itself only changes once you're actually on the new way. Using the raw
+#    field meant the cap only ever engaged right at the sign instead of decelerating into
+#    it.
 #  - a HIGHER resolved limit is accepted only when the driver bumps the cruise stalk
 #    (carState.vCruise increasing) - replicated here in Python instead of left to mapd's
 #    own adjust_set_speed_to_accept_speed_limit, which is turned off below
@@ -79,11 +85,12 @@ def update_check_due(params: Params) -> bool:
 
 
 class SpeedLimitAcceptWatcher:
-  """Auto-accepts a lower resolved speed limit immediately; accepts a higher one only
-  when the driver bumps the cruise stalk (carState.vCruise changing)."""
+  """Auto-accepts a lower resolved speed limit immediately (including mapd's own
+  pre-emptive lead-in as you approach it); accepts a higher one only when the driver
+  bumps the cruise stalk (carState.vCruise changing)."""
 
   def __init__(self):
-    self.last_limit: float | None = None
+    self.last_suggested: float | None = None
     self.last_v_cruise: float | None = None
 
   def update(self, sm: messaging.SubMaster, pm: messaging.PubMaster, params: Params) -> None:
@@ -91,10 +98,10 @@ class SpeedLimitAcceptWatcher:
       return
 
     mapd_out = sm['mapdOut']
-    if mapd_out.tileLoaded and mapd_out.speedLimit > 0.:
-      if self.last_limit is not None and mapd_out.speedLimit < self.last_limit:
+    if mapd_out.tileLoaded and mapd_out.speedLimitSuggestedSpeed > 0.:
+      if self.last_suggested is not None and mapd_out.speedLimitSuggestedSpeed < self.last_suggested:
         send_accept_speed_limit(pm)
-      self.last_limit = mapd_out.speedLimit
+      self.last_suggested = mapd_out.speedLimitSuggestedSpeed
 
     v_cruise = sm['carState'].vCruise
     if self.last_v_cruise is not None and v_cruise > self.last_v_cruise:
