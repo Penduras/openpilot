@@ -14,18 +14,17 @@ from openpilot.selfdrive.mapd import MAPD_PATH, MAPD_BIN_DIR
 # NOTE: v1.x used a different protocol (mem_params) than the current v2.x (cereal
 # MapdIn/MapdOut messages) - make sure VERSION/URL and the schema stay in sync.
 #
-# EMERGENCY REVERT (attempted v2.3.0 bump crash-looped mapd on a real drive test):
-# v2.3.0 restructured MapdSettings into nested sub-structs and added a
-# settings_version gate in Load() (settings.go). Our stored MapdSettings param
-# has no "settings_version" key (build_settings() never wrote one), which
-# Load() defaults to 0 and then calls Migrate(0, data) - but Migrate()'s
-# switch only handles version==1, so version 0 falls through with no case,
-# leaving an untyped nil that the function then unconditionally type-asserts
-# to MapdSettings, panicking every single launch. Confirmed by running the
-# downloaded binary manually over SSH. Reverting to v2.1.0 until
-# build_settings() is rewritten for v2.3.0's actual nested schema and a
-# settings_version is included - see memory / next session.
-VERSION = "v2.1.0"
+# v2.1.0 -> v2.3.0, second attempt: the first attempt crash-looped because
+# v2.3.0 added a settings_version gate to Load() and our MapdSettings param had
+# no such key (see the retry with an actual fix in mapd_config.py's
+# build_settings(), and memory: xnor_openpilot_deploy_gotchas for the full
+# incident). build_settings() now writes settings_version and the correct
+# nested speed_limit/subscriber sub-objects for v2.3.0's actual schema,
+# verified by parsing the real v2.3.0 settings.go struct definitions rather
+# than guessing. Also fixes the speedLimitAccepted bug (our SpeedLimitAcceptWatcher
+# workaround stays in place regardless) and a signed-vs-magnitude bug in vision
+# curve detection that likely made SCC-Vision only react to curves one way.
+VERSION = "v2.3.0"
 URL = f"https://github.com/pfeiferj/mapd/releases/download/{VERSION}/mapd"
 
 

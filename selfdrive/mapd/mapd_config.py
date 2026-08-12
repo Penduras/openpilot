@@ -21,10 +21,12 @@ from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 # wifi/ethernet connection, so it never burns cellular data doing it.
 #
 # It also drives BOTH directions of speed-limit acceptance itself rather than trusting
-# mapd's own accept machinery: mapd v2.1.0's state.go Send() never actually calls
-# output.SetSpeedLimitAccepted(), so mapdOut.speedLimitAccepted is always false (confirmed
-# against mapd's own source), and its internal adjust_set_speed_to_accept_speed_limit
-# stalk-accept path wasn't triggering reliably on a real drive either. So instead:
+# mapd's own accept machinery. This was originally forced by a real bug in mapd v2.1.0
+# (state.go's Send() never called output.SetSpeedLimitAccepted(), confirmed against
+# mapd's own source) - fixed in v2.3.0, but kept anyway as a second, independent
+# mechanism rather than trusting the upstream fix blindly; it's harmless if redundant.
+# mapd's own adjust_set_speed_to_accept_speed_limit stalk-accept path also wasn't
+# triggering reliably on a real drive, so:
 #  - a new LOWER resolved limit is auto-accepted the instant it's seen, no driver action
 #    needed - watches mapdOut.speedLimitSuggestedSpeed rather than the raw
 #    mapdOut.speedLimit, since mapd's own SuggestNewSpeedLimit() (speed_limit.go) already
@@ -49,15 +51,41 @@ UPDATE_CHECK_INTERVAL = datetime.timedelta(days=7)  # re-check for fresher map d
 WIFI_LIKE_NETWORKS = (NetworkType.wifi, NetworkType.ethernet)
 
 
+# mapd v2.3.0 (PR #123, "capnp-updates"/settings restructure) nested MapdSettings into
+# sub-structs (speed_limit/subscriber/logger/personalities) and added a settings_version
+# gate in Load() - a stored blob with no "settings_version" key reads as 0, which its
+# Migrate() has no case for and panics on a nil type-assert (confirmed on a real device,
+# see memory: xnor_openpilot_deploy_gotchas). "settings_version": 2 here is required to
+# skip that path entirely, matching the SETTINGS_VERSION constant in mapd's settings.go.
+# The sub-object keys below only need to carry what we're overriding - Default() already
+# populated the full struct (including the fields we don't set here) before Load()
+# unmarshals this JSON on top, so a partial nested object still merges field-by-field
+# rather than zeroing out whatever it omits, same as the old flat structure did.
+#
+# subscriber.shadow_selfdrive_state is new here too (default off): without it, mapd never
+# subscribes to selfdriveState at all, so CurrentPersonality() (map_curve.go/speed_limit.go/
+# vision_curve.go) always falls through to its Standard profile regardless of the
+# aggressive/standard/relaxed personality actually selected in this fork's own UI. Turning
+# it on lets mapd's curve/jerk tuning follow whichever personality the driver has picked,
+# instead of ignoring that choice.
+MAPD_SETTINGS_VERSION = 2
+
+
 def build_settings(params: Params) -> dict:
   return {
+    "settings_version": MAPD_SETTINGS_VERSION,
     "speed_limit_control_enabled": params.get_bool("SpeedLimitControl"),
-    "speed_limit_change_requires_accept": True,
-    "adjust_set_speed_to_accept_speed_limit": False,
-    "press_gas_to_override_speed_limit": True,
-    "hold_last_seen_speed_limit": True,
     "map_curve_speed_control_enabled": params.get_bool("SmartCruiseControlMap"),
     "vision_curve_speed_control_enabled": params.get_bool("SmartCruiseControlVision"),
+    "subscriber": {
+      "shadow_selfdrive_state": True,
+    },
+    "speed_limit": {
+      "speed_limit_change_requires_accept": True,
+      "adjust_set_speed_to_accept_speed_limit": False,
+      "press_gas_to_override_speed_limit": True,
+      "hold_last_seen_speed_limit": True,
+    },
   }
 
 
