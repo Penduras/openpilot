@@ -14,16 +14,18 @@ from openpilot.selfdrive.mapd import MAPD_PATH, MAPD_BIN_DIR
 # NOTE: v1.x used a different protocol (mem_params) than the current v2.x (cereal
 # MapdIn/MapdOut messages) - make sure VERSION/URL and the schema stay in sync.
 #
-# v2.1.0 -> v2.3.0 (bumped after checking the 433-commit diff): fixes the
-# speedLimitAccepted bug we independently found and worked around in
-# mapd_config.py (SpeedLimitAcceptWatcher stays in place regardless, it's
-# harmless if redundant), and a real vision-curve bug where peak lateral
-# acceleration was compared signed instead of by magnitude - curves in one
-# rotational direction never exceeded the maxLatA=0 starting threshold, so
-# SCC-Vision likely only ever reacted to curves one way. Our build_settings()
-# JSON keys and the MapdOut/MapdIn schema we copied are unchanged across this
-# range; MapdExtendedOut gained an optional `position` field we don't consume.
-VERSION = "v2.3.0"
+# EMERGENCY REVERT (attempted v2.3.0 bump crash-looped mapd on a real drive test):
+# v2.3.0 restructured MapdSettings into nested sub-structs and added a
+# settings_version gate in Load() (settings.go). Our stored MapdSettings param
+# has no "settings_version" key (build_settings() never wrote one), which
+# Load() defaults to 0 and then calls Migrate(0, data) - but Migrate()'s
+# switch only handles version==1, so version 0 falls through with no case,
+# leaving an untyped nil that the function then unconditionally type-asserts
+# to MapdSettings, panicking every single launch. Confirmed by running the
+# downloaded binary manually over SSH. Reverting to v2.1.0 until
+# build_settings() is rewritten for v2.3.0's actual nested schema and a
+# settings_version is included - see memory / next session.
+VERSION = "v2.1.0"
 URL = f"https://github.com/pfeiferj/mapd/releases/download/{VERSION}/mapd"
 
 
