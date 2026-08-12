@@ -42,8 +42,15 @@ class MapdInstallManager:
 
   def download(self) -> None:
     self.ensure_directories_exist()
-    self._download_file()
-    update_installed_version(VERSION, self._params)
+    # xnor: only record the version as installed if the download actually succeeded -
+    # this used to be unconditional, which let a real crash-looping binary sit on disk
+    # silently marked "installed" after a boot-time network hiccup meant the download
+    # of a downgrade attempt (v2.3.0 -> v2.1.0) never actually happened. The old
+    # (crashing) binary stayed in place while download_needed() saw the versions match
+    # and stopped retrying entirely - only caught by manually inspecting the binary
+    # over SSH, not by anything this installer reported.
+    if self._download_file():
+      update_installed_version(VERSION, self._params)
 
   def check_and_download(self) -> None:
     if self.download_needed():
@@ -66,7 +73,7 @@ class MapdInstallManager:
     current_permissions = stat.S_IMODE(os.lstat(file_path).st_mode)
     os.chmod(file_path, current_permissions | stat.S_IEXEC)
 
-  def _download_file(self, num_retries=5) -> None:
+  def _download_file(self, num_retries=5) -> bool:
     temp_file = Path(MAPD_PATH + ".tmp")
     download_timeout = 60
     for cnt in range(num_retries):
@@ -76,7 +83,7 @@ class MapdInstallManager:
         self._safe_write_and_set_executable(temp_file, response.content)
         # No exceptions encountered. Safe to replace original file.
         temp_file.replace(MAPD_PATH)
-        return
+        return True
       except requests.exceptions.RequestException as e:
         logging.warning(f"mapd: download attempt {cnt} failed: {e}")
         time.sleep(0.5)
@@ -84,6 +91,7 @@ class MapdInstallManager:
     if temp_file.exists():
       temp_file.unlink()
     logging.error("mapd: failed to download after all retries")
+    return False
 
   def get_installed_version(self) -> str:
     return str(self._params.get("MapdVersion") or "")
