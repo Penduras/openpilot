@@ -13,7 +13,17 @@ from openpilot.selfdrive.mapd import MAPD_PATH, MAPD_BIN_DIR
 # download-on-first-run path (no boot spinner screen, no release-branch checks).
 # NOTE: v1.x used a different protocol (mem_params) than the current v2.x (cereal
 # MapdIn/MapdOut messages) - make sure VERSION/URL and the schema stay in sync.
-VERSION = "v2.1.0"
+#
+# v2.1.0 -> v2.3.0 (bumped after checking the 433-commit diff): fixes the
+# speedLimitAccepted bug we independently found and worked around in
+# mapd_config.py (SpeedLimitAcceptWatcher stays in place regardless, it's
+# harmless if redundant), and a real vision-curve bug where peak lateral
+# acceleration was compared signed instead of by magnitude - curves in one
+# rotational direction never exceeded the maxLatA=0 starting threshold, so
+# SCC-Vision likely only ever reacted to curves one way. Our build_settings()
+# JSON keys and the MapdOut/MapdIn schema we copied are unchanged across this
+# range; MapdExtendedOut gained an optional `position` field we don't consume.
+VERSION = "v2.3.0"
 URL = f"https://github.com/pfeiferj/mapd/releases/download/{VERSION}/mapd"
 
 
