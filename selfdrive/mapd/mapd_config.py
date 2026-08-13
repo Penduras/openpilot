@@ -115,7 +115,18 @@ def update_check_due(params: Params) -> bool:
 class SpeedLimitAcceptWatcher:
   """Auto-accepts a lower resolved speed limit immediately (including mapd's own
   pre-emptive lead-in as you approach it); accepts a higher one only when the driver
-  bumps the cruise stalk (carState.vCruise changing)."""
+  bumps the cruise stalk (carState.vCruise changing).
+
+  Withholds the downward auto-accept while the driver has the gas pressed: mapd's
+  pre-emptive lead-in (SuggestNewSpeedLimit's jerk-limited distanceToReachSpeed, in
+  speed_limit.go) is a live function of car.VEgo/car.AEgo, both of which are exactly
+  what change while pressing the gas to override - so the resolved suggestion can flap
+  during an active override, and every accept we send resets mapd's own OverrideSpeed
+  (UpdateAcceptedLimitValue zeroes it whenever AcceptedLimit doesn't match a moving
+  Suggestion.Value), fighting the driver's press_gas_to_override_speed_limit input
+  instead of respecting it. Gas-press is an explicit signal the driver already wants to
+  exceed the limit, so there's nothing useful an auto-accept adds in that window anyway.
+  """
 
   def __init__(self):
     self.last_suggested: float | None = None
@@ -125,9 +136,11 @@ class SpeedLimitAcceptWatcher:
     if not params.get_bool("SpeedLimitControl"):
       return
 
+    gas_pressed = sm['carState'].gasPressed
+
     mapd_out = sm['mapdOut']
     if mapd_out.tileLoaded and mapd_out.speedLimitSuggestedSpeed > 0.:
-      if self.last_suggested is not None and mapd_out.speedLimitSuggestedSpeed < self.last_suggested:
+      if not gas_pressed and self.last_suggested is not None and mapd_out.speedLimitSuggestedSpeed < self.last_suggested:
         send_accept_speed_limit(pm)
       self.last_suggested = mapd_out.speedLimitSuggestedSpeed
 
