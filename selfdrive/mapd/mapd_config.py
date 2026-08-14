@@ -64,10 +64,26 @@ WIFI_LIKE_NETWORKS = (NetworkType.wifi, NetworkType.ethernet)
 # aggressive/standard/relaxed personality actually selected in this fork's own UI. Turning
 # it on lets mapd's curve/jerk tuning follow whichever personality the driver has picked,
 # instead of ignoring that choice.
+#
+# That has one deliberate exception: personalities.*.speed_up_for_next_speed_limit is
+# pinned to false for all three profiles below. speed_limit.go's SuggestNewSpeedLimit()
+# uses this (alongside the always-on slow_down_for_next_speed_limit) to decide whether
+# speedLimitSuggestedSpeed leads into an upcoming CHANGE before you reach the sign, same
+# jerk-limited distance calc either direction. mapd's own shipped defaults already only
+# enable the upward version for the Aggressive profile (Relaxed/Standard ship false) -
+# before shadow_selfdrive_state existed, CurrentPersonality() always resolved to Standard
+# regardless of the fork's actual selection, so that per-personality knob was silently
+# inert here. Now that personality selection is genuinely honored, driving on Aggressive
+# would suddenly start accelerating before reaching a higher-limit sign instead of after
+# passing it - overriding it to false here keeps that one behavior (decelerate into a
+# lower limit, only pick up a higher one once actually on the new way) consistent across
+# all three personalities, since that's the behavior actually wanted, independent of
+# whichever personality is selected for jerk/accel/curve tuning otherwise.
 MAPD_SETTINGS_VERSION = 2
 
 
 def build_settings(params: Params) -> dict:
+  no_speed_up_for_next_limit = {"speed_up_for_next_speed_limit": False}
   return {
     "settings_version": MAPD_SETTINGS_VERSION,
     "speed_limit_control_enabled": params.get_bool("SpeedLimitControl"),
@@ -81,6 +97,11 @@ def build_settings(params: Params) -> dict:
       "adjust_set_speed_to_accept_speed_limit": False,
       "press_gas_to_override_speed_limit": True,
       "hold_last_seen_speed_limit": True,
+    },
+    "personalities": {
+      "relaxed": no_speed_up_for_next_limit,
+      "standard": no_speed_up_for_next_limit,
+      "aggressive": no_speed_up_for_next_limit,
     },
   }
 
