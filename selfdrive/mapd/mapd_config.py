@@ -27,14 +27,10 @@ from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 # trusting the upstream fix blindly; it's harmless if redundant. mapd's own
 # adjust_set_speed_to_accept_speed_limit stalk-accept path also wasn't triggering
 # reliably on a real drive, so both directions are accepted automatically, immediately,
-# with no driver action required either way (deliberate choice - watches
-# mapdOut.speedLimitSuggestedSpeed rather than the raw mapdOut.speedLimit, since mapd's
-# own SuggestNewSpeedLimit() (speed_limit.go) already pre-empts speedLimitSuggestedSpeed
-# to an upcoming lower limit once within braking distance - slow_down_for_next_speed_limit
-# defaults on, never overridden below - while speedLimit itself only changes once you're
-# actually on the new way; using the raw field meant a lower cap only ever engaged right
-# at the sign instead of decelerating into it). Sends the exact same mapdIn{acceptSpeedLimit}
-# message the onroad sign's tap-to-accept uses, which IS confirmed working end-to-end.
+# with no driver action required either way (deliberate choice). Sends the exact same
+# mapdIn{acceptSpeedLimit} message the onroad sign's tap-to-accept uses, which IS
+# confirmed working end-to-end once it actually gets sent - see SpeedLimitAcceptWatcher
+# below for why "actually gets sent" needed its own fix.
 # This needs to react quickly, so the loop runs at TICK_HZ, with the slow tasks (download
 # retry, weekly update check) gated by their own elapsed-time tracking instead of the
 # loop's own rate.
@@ -136,6 +132,34 @@ class SpeedLimitAcceptWatcher:
   "auto-up" in practice turned out to be an accident - see below - and once noticed,
   full bidirectional auto-accept is what was actually wanted).
 
+  Level-triggered off mapd's own mapdOut.speedLimitAccepted flag, NOT edge-triggered off
+  a locally-tracked "did speedLimitSuggestedSpeed change" comparison (the original
+  design here, and a real bug - see below). Keeps resending accept every tick that flag
+  reads false; a no-op once mapd reports it's already accepted.
+
+  This needed to change because the original change-detection design raced with mapd's
+  own internal reset of that same flag and could permanently miss the accept that
+  actually mattered - confirmed on a real drive (2026-08-14): a village 50 zone was
+  driven at 60 the entire way through, onroad sign correctly showing red (it reads the
+  raw, unaccepted speedLimitSuggestedSpeed directly - proof mapd HAD resolved 50
+  correctly), while the actual enforced cap (mapdOut.suggestedSpeed, what
+  longitudinal_planner.py reads) stayed stuck on a stale prior limit the whole time.
+  Root cause, confirmed against mapd's real source: utils.Float32Tracker.Update()
+  (backing Suggestion.Value) has no debounce at all - ANY inequality flips
+  suggestedSpeedUpdated=true and mapd immediately self-resets its own speedLimitAccepted
+  flag in the same tick (UpdateAcceptedLimitValue, speed_limit.go), before an external
+  accept sent in response can land. speedLimitSuggestedSpeed's pre-emptive lead-in is a
+  live function of car.VEgo/car.AEgo (real, continuously-changing values, not just during
+  gas-press - see the note below), so near any upcoming different-limit way this can
+  flip-flop across several ticks before settling. The old design tracked "changed since I
+  last looked" independently and asynchronously from mapd's own identical internal
+  edge-trigger on that same jittery signal - two separate edge-detectors racing on one
+  noisy value, where the external tracker's "last seen" could drift back in sync with a
+  transient mid-flap value, silently swallowing the send needed for the transition that
+  actually stuck. Reacting to mapd's own current accepted-state instead of trying to
+  infer transitions ourselves sidesteps the race entirely: however many times mapd resets
+  internally, this converges within a tick or two of it settling, by construction.
+
   Withholds the auto-accept while the driver has the gas pressed: mapd's pre-emptive
   lead-in (SuggestNewSpeedLimit's jerk-limited distanceToReachSpeed, in speed_limit.go)
   is a live function of car.VEgo/car.AEgo, both of which are exactly what change while
@@ -159,20 +183,16 @@ class SpeedLimitAcceptWatcher:
   deliberately what it looked like it was doing by accident.)
   """
 
-  def __init__(self):
-    self.last_suggested: float | None = None
-
   def update(self, sm: messaging.SubMaster, pm: messaging.PubMaster, params: Params) -> None:
     if not params.get_bool("SpeedLimitControl"):
       return
 
-    gas_pressed = sm['carState'].gasPressed
+    if sm['carState'].gasPressed:
+      return
 
     mapd_out = sm['mapdOut']
-    if mapd_out.tileLoaded and mapd_out.speedLimitSuggestedSpeed > 0.:
-      if not gas_pressed and self.last_suggested is not None and mapd_out.speedLimitSuggestedSpeed != self.last_suggested:
-        send_accept_speed_limit(pm)
-      self.last_suggested = mapd_out.speedLimitSuggestedSpeed
+    if mapd_out.tileLoaded and mapd_out.speedLimitSuggestedSpeed > 0. and not mapd_out.speedLimitAccepted:
+      send_accept_speed_limit(pm)
 
 
 def main():
