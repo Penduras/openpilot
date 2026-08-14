@@ -20,28 +20,24 @@ from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 # up whatever OSM data is currently hosted upstream) but only while on an unmetered
 # wifi/ethernet connection, so it never burns cellular data doing it.
 #
-# It also drives BOTH directions of speed-limit acceptance itself rather than trusting
-# mapd's own accept machinery. This was originally forced by a real bug in mapd v2.1.0
-# (state.go's Send() never called output.SetSpeedLimitAccepted(), confirmed against
-# mapd's own source) - fixed in v2.3.0, but kept anyway as a second, independent
-# mechanism rather than trusting the upstream fix blindly; it's harmless if redundant.
-# mapd's own adjust_set_speed_to_accept_speed_limit stalk-accept path also wasn't
-# triggering reliably on a real drive, so:
-#  - a new LOWER resolved limit is auto-accepted the instant it's seen, no driver action
-#    needed - watches mapdOut.speedLimitSuggestedSpeed rather than the raw
-#    mapdOut.speedLimit, since mapd's own SuggestNewSpeedLimit() (speed_limit.go) already
-#    pre-empts speedLimitSuggestedSpeed to the upcoming lower limit once within braking
-#    distance (slow_down_for_next_speed_limit defaults on, never overridden below), while
-#    speedLimit itself only changes once you're actually on the new way. Using the raw
-#    field meant the cap only ever engaged right at the sign instead of decelerating into
-#    it.
-#  - a HIGHER resolved limit is accepted only when the driver bumps the cruise stalk
-#    (carState.vCruise increasing) - replicated here in Python instead of left to mapd's
-#    own adjust_set_speed_to_accept_speed_limit, which is turned off below
-# Both paths send the exact same mapdIn{acceptSpeedLimit} message the onroad sign's
-# tap-to-accept uses, which IS confirmed working end-to-end. This needs to react quickly,
-# so the loop runs at TICK_HZ, with the slow tasks (download retry, weekly update check)
-# gated by their own elapsed-time tracking instead of the loop's own rate.
+# It also drives speed-limit acceptance itself rather than trusting mapd's own accept
+# machinery. This was originally forced by a real bug in mapd v2.1.0 (state.go's Send()
+# never called output.SetSpeedLimitAccepted(), confirmed against mapd's own source) -
+# fixed in v2.3.0, but kept anyway as a second, independent mechanism rather than
+# trusting the upstream fix blindly; it's harmless if redundant. mapd's own
+# adjust_set_speed_to_accept_speed_limit stalk-accept path also wasn't triggering
+# reliably on a real drive, so both directions are accepted automatically, immediately,
+# with no driver action required either way (deliberate choice - watches
+# mapdOut.speedLimitSuggestedSpeed rather than the raw mapdOut.speedLimit, since mapd's
+# own SuggestNewSpeedLimit() (speed_limit.go) already pre-empts speedLimitSuggestedSpeed
+# to an upcoming lower limit once within braking distance - slow_down_for_next_speed_limit
+# defaults on, never overridden below - while speedLimit itself only changes once you're
+# actually on the new way; using the raw field meant a lower cap only ever engaged right
+# at the sign instead of decelerating into it). Sends the exact same mapdIn{acceptSpeedLimit}
+# message the onroad sign's tap-to-accept uses, which IS confirmed working end-to-end.
+# This needs to react quickly, so the loop runs at TICK_HZ, with the slow tasks (download
+# retry, weekly update check) gated by their own elapsed-time tracking instead of the
+# loop's own rate.
 
 MapdInputType = custom.MapdInputType
 NetworkType = log.DeviceState.NetworkType
@@ -113,24 +109,37 @@ def update_check_due(params: Params) -> bool:
 
 
 class SpeedLimitAcceptWatcher:
-  """Auto-accepts a lower resolved speed limit immediately (including mapd's own
-  pre-emptive lead-in as you approach it); accepts a higher one only when the driver
-  bumps the cruise stalk (carState.vCruise changing).
+  """Auto-accepts any resolved speed limit change immediately, no driver confirmation
+  needed either direction - deliberate policy choice (not the original design: this
+  used to require a cruise-stalk bump to accept an increase, but what looked like
+  "auto-up" in practice turned out to be an accident - see below - and once noticed,
+  full bidirectional auto-accept is what was actually wanted).
 
-  Withholds the downward auto-accept while the driver has the gas pressed: mapd's
-  pre-emptive lead-in (SuggestNewSpeedLimit's jerk-limited distanceToReachSpeed, in
-  speed_limit.go) is a live function of car.VEgo/car.AEgo, both of which are exactly
-  what change while pressing the gas to override - so the resolved suggestion can flap
-  during an active override, and every accept we send resets mapd's own OverrideSpeed
+  Withholds the auto-accept while the driver has the gas pressed: mapd's pre-emptive
+  lead-in (SuggestNewSpeedLimit's jerk-limited distanceToReachSpeed, in speed_limit.go)
+  is a live function of car.VEgo/car.AEgo, both of which are exactly what change while
+  pressing the gas to override - so the resolved suggestion can flap during an active
+  override, and every accept we send resets mapd's own OverrideSpeed
   (UpdateAcceptedLimitValue zeroes it whenever AcceptedLimit doesn't match a moving
   Suggestion.Value), fighting the driver's press_gas_to_override_speed_limit input
   instead of respecting it. Gas-press is an explicit signal the driver already wants to
   exceed the limit, so there's nothing useful an auto-accept adds in that window anyway.
+
+  (Note on the history here: the previous downward-only version relied on a
+  carState.vCruise increase - a cruise-stalk bump - to accept a pending higher
+  suggestion. What actually looked like automatic upward adjustment before the
+  gas-press gate was added was never that path firing; speedLimitSuggestedSpeed jitters
+  naturally during ordinary driving since its pre-emptive lead-in is live-computed from
+  VEgo/AEgo even outside a gas-press event, which made the old downward-only trigger
+  re-fire often enough to keep mapd's internal accept flag continuously "fresh" -
+  and once that flag is set, mapd mirrors AcceptedLimit to Suggestion.Value regardless
+  of which way it just moved. The gas-press gate reduced how often that re-firing
+  happened, which broke the illusion. Rather than chase that accident, this now does
+  deliberately what it looked like it was doing by accident.)
   """
 
   def __init__(self):
     self.last_suggested: float | None = None
-    self.last_v_cruise: float | None = None
 
   def update(self, sm: messaging.SubMaster, pm: messaging.PubMaster, params: Params) -> None:
     if not params.get_bool("SpeedLimitControl"):
@@ -140,14 +149,9 @@ class SpeedLimitAcceptWatcher:
 
     mapd_out = sm['mapdOut']
     if mapd_out.tileLoaded and mapd_out.speedLimitSuggestedSpeed > 0.:
-      if not gas_pressed and self.last_suggested is not None and mapd_out.speedLimitSuggestedSpeed < self.last_suggested:
+      if not gas_pressed and self.last_suggested is not None and mapd_out.speedLimitSuggestedSpeed != self.last_suggested:
         send_accept_speed_limit(pm)
       self.last_suggested = mapd_out.speedLimitSuggestedSpeed
-
-    v_cruise = sm['carState'].vCruise
-    if self.last_v_cruise is not None and v_cruise > self.last_v_cruise:
-      send_accept_speed_limit(pm)
-    self.last_v_cruise = v_cruise
 
 
 def main():
