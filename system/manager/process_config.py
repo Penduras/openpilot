@@ -135,6 +135,12 @@ procs = [
   mapd_native_process,
   PythonProcess("mapd_config", "selfdrive.mapd.mapd_config", mapd_enabled, restart_if_crash=True),
 
+  # xnor: Tailscale on/off toggle (remote reachability for diagnostics off the home LAN,
+  # see memory: xnor_openpilot_deploy_gotchas). always_run rather than gated on the
+  # TailscaleEnabled param itself - this watcher has to keep running even while the
+  # toggle is off, so it's there to react the moment someone turns it on.
+  PythonProcess("tailscale_config", "selfdrive.tailscale.tailscale_config", always_run, restart_if_crash=True),
+
   # debug procs
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),
   PythonProcess("webrtcd", "system.webrtc.webrtcd", notcar),
