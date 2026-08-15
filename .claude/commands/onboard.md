@@ -24,3 +24,9 @@ work yet:
 
 Then give a short status summary: what you learned, and whether the environment is
 ready to work in.
+
+One standing practice for the rest of this session, not just this onboarding pass: per
+CLAUDE.md's "Working practices" section, write or update a memory note whenever you
+finish a feature or bug fix — on your own initiative, without being asked. That's the
+only way the *next* onboarding actually stays current instead of drifting stale like
+the deploy-gotchas file did on 2026-08-14/15.

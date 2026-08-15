@@ -39,6 +39,17 @@ mapd's own internal accept-flag, a personality-scoped default that silently acti
 is worth asking the assistant about — it maintains its own more detailed notes on this,
 separate from this file.
 
+## Working practices
+
+- **After finishing a feature or bug fix, write or update a memory note about it** —
+  this assistant's own persistent memory (not this file), at whatever path this session
+  uses for it (e.g. `~/.claude/projects/<...>/memory/` — check your own environment).
+  Cover what changed, why, and any non-obvious root cause. Do this on your own
+  judgment, without being asked — it's how a fresh session, which has no access to this
+  conversation's history, actually picks up where the last one left off. Follow the
+  existing memory files' conventions: one fact per file, link related notes with
+  `[[name]]`, add a one-line pointer to the `MEMORY.md` index.
+
 ## Known open issue
 
 mapd can get permanently stuck with `tileLoaded: false` after certain boots, even with
