@@ -124,6 +124,17 @@ class SelfdriveD:
     self.mads = ModularAssistiveDrivingSystem(self)
     self.rk = Ratekeeper(100, print_delay_threshold=None)
 
+    # xnor: ported from sunnypilot (PR #1880, "mapd: ignore in plannerd health check") -
+    # mapd is a best-effort background feature (gated on SpeedLimitControl/
+    # SmartCruiseControlMap/-Vision, see process_config.py's mapd_enabled), not something
+    # that should be able to block engagement or soft-disable a drive if it's transiently
+    # down - e.g. mid-restart during the known tileLoaded-stuck recovery (CLAUDE.md).
+    # Deliberately only 'mapd' (the Go binary), not 'mapd_config' - matches sunnypilot's
+    # own choice and this fork's own observed failure mode: mapd_config going down would
+    # actually indicate something broke (e.g. the accept-watcher), mapd itself flapping
+    # during a tile-load retry is the expected/tolerated case.
+    self.ignored_processes = {'mapd', }
+
     # Determine startup event
     self.startup_event = EventName.startup if build_metadata.openpilot.comma_remote and build_metadata.tested_channel else EventName.startupMaster
     if HARDWARE.get_device_type() == 'mici':
@@ -296,7 +307,7 @@ class SelfdriveD:
       if not_running != self.not_running_prev:
         cloudlog.event("process_not_running", not_running=not_running, error=True)
       self.not_running_prev = not_running
-    if self.sm.recv_frame['managerState'] and not_running:
+    if self.sm.recv_frame['managerState'] and (not_running - self.ignored_processes):
       self.events.add(EventName.processNotRunning)
     else:
       if not SIMULATION and not self.rk.lagging:
