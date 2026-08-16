@@ -15,7 +15,7 @@ is unrelated to brake handling and is kept, since that's the core value MADS add
 Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 Adapted under the MIT License. See LICENSE.md.
 """
-from cereal import log, custom
+from openpilot.cereal import log, custom
 from opendbc.car import structs
 from openpilot.common.params import Params
 from openpilot.common.realtime import DT_CTRL

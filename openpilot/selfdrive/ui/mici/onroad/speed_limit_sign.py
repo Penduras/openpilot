@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pyray as rl
 
-import cereal.messaging as messaging
+import openpilot.cereal.messaging as messaging
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.mapd.actions import send_accept_speed_limit
