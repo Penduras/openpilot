@@ -21,9 +21,13 @@ only exist on whichever machine wrote them, so don't assume they're loaded.
   alone does NOT apply a code change to an already-running preimported process — always
   `sudo reboot` after deploying and verify the *new* commit hash appears in fresh
   swaglog entries, not just `git log`.
-- Two-repo structure: main repo + `opendbc_repo` git submodule (`Penduras/opendbc`,
-  branch `mads-hw3-tesla`) — schema changes need commits in both, plus a submodule-bump
-  commit in the main repo.
+- Multi-repo structure: main repo + `opendbc_repo` (`Penduras/opendbc`) and `panda`
+  (`Penduras/panda`) git submodules, both with their own `dev` branches mirroring the
+  main repo's — schema/firmware changes need commits in the relevant submodule(s), plus
+  a submodule-bump commit in the main repo. A submodule pointer can auto-merge cleanly
+  during a big merge and still silently end up on the wrong commit (no conflict ever
+  flags it) — don't assume a clean merge means every submodule pointer actually moved
+  where it should have; check each one explicitly.
 - Validation workflow: WSL Ubuntu-24.04 at `~/openpilot_dev/openpilot` for real
   `capnp compile`/`scons`/`py_compile`/`ruff check` before every deploy.
 
@@ -31,13 +35,18 @@ only exist on whichever machine wrote them, so don't assume they're loaded.
 
 Speed Limit Control / Smart Cruise Control - Map & Vision (mapd v2.3.0,
 `github.com/pfeiferj/mapd`), Tesla cruise-stalk-cancel wired to a real disengage event,
-sunnypilot's Quiet Mode, and a Tailscale on/off settings toggle for off-LAN reachability.
-Full detail on how each of these actually works, and the real incidents that shaped them
-(a SIGBUS crash from a mismatched cereal queue size, an mapd v2.3.0 settings-schema
+sunnypilot's Quiet Mode, a Tailscale on/off settings toggle for off-LAN reachability, and
+a driver-override easing feature for angle-controlled steering (`latcontrol_angle.py`)
+that blends toward the driver's actual angle while they're overriding instead of fighting
+them. Full detail on how each of these actually works, and the real incidents that shaped
+them (a SIGBUS crash from a mismatched cereal queue size, an mapd v2.3.0 settings-schema
 migration panic, a race condition between this fork's speed-limit accept-watcher and
-mapd's own internal accept-flag, a personality-scoped default that silently activated),
-is worth asking the assistant about — it maintains its own more detailed notes on this,
-separate from this file.
+mapd's own internal accept-flag, a personality-scoped default that silently activated,
+resolved 2026-08-16: the mapd `tileLoaded` stuck bug below, and — on `dev` only as of
+2026-08-16, not yet merged to `main` — a real safety-relevant fix to the steering-override
+easing that could otherwise trip a hard EPAS fault mid-corner), is worth asking the
+assistant about — it maintains its own more detailed notes on this, separate from this
+file.
 
 ## Working practices
 
@@ -50,12 +59,18 @@ separate from this file.
   existing memory files' conventions: one fact per file, link related notes with
   `[[name]]`, add a one-line pointer to the `MEMORY.md` index.
 
-## Known open issue
+## Resolved: mapd `tileLoaded: false` stuck bug
 
-mapd can get permanently stuck with `tileLoaded: false` after certain boots, even with
-valid GPS and the right map data already on disk. Recovery: `kill` the `mapd` process
-(not `mapd_config`) over SSH — manager.py relaunches it and it resolves correctly on the
-fresh process. Root cause not yet found (mapd's own stdout/stderr is discarded).
+Root-caused and fixed 2026-08-16 (previously documented here as an open issue with no
+known root cause). mapd has no persistent "do I already have this data" state, so any
+restart re-triggers its entire configured-region download from scratch with no resume
+logic — and mapd's own main loop is single-threaded, so GPS/position-checking doesn't
+run at all while a download is in progress. Fixed via a disk-based check in
+`mapd_config.py` (`has_existing_map_data()`) that skips the redundant redownload trigger
+when real map data already exists on disk. Ask the assistant for the full incident
+detail (how it was actually diagnosed — capturing mapd's own stdout/stderr for the first
+time, and reading mapd's real Go source — is worth knowing if a similar third-party
+binary issue comes up again).
 
 ## Gotchas worth knowing before touching things
 
