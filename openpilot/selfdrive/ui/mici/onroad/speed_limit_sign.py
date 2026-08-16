@@ -2,10 +2,8 @@ from dataclasses import dataclass
 
 import pyray as rl
 
-import openpilot.cereal.messaging as messaging
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
-from openpilot.selfdrive.mapd.actions import send_accept_speed_limit
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.multilang import tr
@@ -19,9 +17,16 @@ from openpilot.system.ui.widgets import Widget
 # icon (would need porting sunnypilot's PNG assets - the sign's own pulsing fade already
 # signals "awaiting accept").
 #
-# Tapping the sign sends mapd a MapdIn{type: acceptSpeedLimit} message, which accepts
-# whatever speed limit it's currently pending on - the same effect as bumping the cruise
-# set speed once (adjust_set_speed_to_accept_speed_limit), just from the touchscreen.
+# Tapping the sign used to send mapd its own independent MapdIn{type: acceptSpeedLimit}
+# message via a PubMaster owned by this widget - disabled 2026-08-16 during the xnor-dev
+# resync device deploy: msgq_repo's own bump as part of that resync made it a hard
+# MultiplePublishersError ("Address already in use") for both this (inside the ui
+# process) and mapd_config.py's own SpeedLimitAcceptWatcher to independently publish to
+# the same 'mapdIn' channel - crash-looped mapd_config on every boot. No functional loss:
+# SpeedLimitAcceptWatcher already auto-accepts both directions unconditionally (see
+# mapd_config.py), so the tap gesture was fully redundant, just possibly a moment faster
+# than the watcher's own poll cycle. If a tap-to-accept UX is wanted again, route it
+# through mapd_config.py itself (e.g. a param it polls) rather than a second publisher.
 # NOTE: this widget does its OWN touch hit-testing scoped to the small sign box, rather
 # than using Widget.set_click_callback - the base class's hit-test uses self._rect, which
 # here is the full camera-view rect passed in by the parent, not the little sign we draw.
@@ -89,8 +94,6 @@ class SpeedLimitSignRenderer(Widget):
 
     self._pending_fade = _PendingFadeAnimator(gui_app.target_fps, duration_on=0.75, rc=0.05)
 
-    self._pm = messaging.PubMaster(['mapdIn'])
-
   @property
   def _speed_conv(self):
     return CV.MS_TO_KPH if ui_state.is_metric else CV.MS_TO_MPH
@@ -102,11 +105,13 @@ class SpeedLimitSignRenderer(Widget):
     return rl.Rectangle(x, y, SIGN_WIDTH, SIGN_HEIGHT)
 
   def _handle_taps(self, sign_rect: rl.Rectangle) -> None:
+    # xnor: tap-to-accept publish disabled - see the module-level comment above. Hit-test
+    # kept in place (harmlessly consumes the tap) rather than deleted outright, so this is
+    # a one-line re-enable once routed through mapd_config.py instead of a second publisher.
     if not (self.tile_loaded and self.speed_limit > 0.):
       return
     for mouse_event in gui_app.mouse_events:
       if mouse_event.left_released and rl.check_collision_point_rec(mouse_event.pos, sign_rect):
-        send_accept_speed_limit(self._pm)
         break
 
   def _update_state(self) -> None:
