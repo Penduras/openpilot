@@ -85,7 +85,7 @@ def and_(*fns):
 def not_(*fns):
   return lambda *args: operator.not_(*(fn(*args) for fn in fns))
 
-mapd_native_process = NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready)
+mapd_native_process = NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /data/mapd_debug.log 2>&1"], mapd_ready)
 
 procs = [
   DaemonProcess("manage_athenad", "openpilot.system.athena.manage_athenad", "AthenadPid"),
