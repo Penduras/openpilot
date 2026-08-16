@@ -13,6 +13,19 @@ STEER_ANGLE_SATURATION_THRESHOLD = 2.5  # Degrees
 # target over this many seconds after they let go, instead of snapping back instantly.
 OVERRIDE_RELEASE_TAU = 0.5  # seconds
 
+# xnor: 2026-08-16 - override_blend used to jump straight to 1.0 the instant
+# steeringPressed went true, only the release side was eased. That's fine in isolation,
+# but mid-corner the model's desired angle and the driver's actual angle can already
+# differ by a lot, so an instant blend snap can itself be a big one-tick jump in the
+# *commanded* angle - enough to trip panda's own steer_angle_cmd_checks() rate-of-change
+# limit (opendbc/safety/lateral.h) and hard-fault the EPAS (steerFault -> SOFT_DISABLE
+# "TAKE CONTROL IMMEDIATELY", see mads.py's comment on that same alert). Confirmed live:
+# hit on a slight corner with a plausibly-flickery grip (talking while driving). Ramping
+# the engage side too (faster than release, since a genuine deliberate override should
+# still feel near-immediate) spreads that transition over several ticks instead of one,
+# without touching the hard disengage path itself - same as the original design intent.
+OVERRIDE_ENGAGE_TAU = 0.1  # seconds
+
 
 class LatControlAngle(LatControl):
   def __init__(self, CP, CI, dt):
@@ -34,7 +47,7 @@ class LatControlAngle(LatControl):
       model_angle_des += params.angleOffsetDeg
 
       if CS.steeringPressed:
-        self.override_blend = 1.0
+        self.override_blend = min(1.0, self.override_blend + self.dt / OVERRIDE_ENGAGE_TAU)
       else:
         self.override_blend = max(0.0, self.override_blend - self.dt / OVERRIDE_RELEASE_TAU)
 
