@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import datetime
+import os
 import time
 
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal import custom, log
 from openpilot.common.params import Params
 from openpilot.common.realtime import Ratekeeper
-from openpilot.selfdrive.mapd import OSM_DOWNLOAD_PATH
+from openpilot.selfdrive.mapd import MAPD_BIN_DIR, OSM_DOWNLOAD_PATH
 from openpilot.selfdrive.mapd.actions import send_accept_speed_limit
 from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 
@@ -114,6 +115,40 @@ def download_in_progress_or_done(sm: messaging.SubMaster) -> bool:
   return bool(progress.active or progress.totalFiles > 0)
 
 
+# xnor: mapd has no persistent state of its own (see the module docstring above) - a
+# fresh mapdIn download trigger makes it redo the ENTIRE nation-level download from
+# scratch every time, even on a device that already has a complete, valid on-disk
+# dataset (confirmed against mapd's own logs, 2026-08-16: no incremental/resume logic at
+# all - the file list is re-walked and everything re-fetched). Worse, mapd's main loop is
+# single-threaded (confirmed against pfeiferj/mapd's own source: one for{} doing GPS
+# position handling and download handling in the same iteration) - it does not process
+# GPS/tile-loading while a download is running, and empirically didn't resume doing so
+# for 100+ seconds after a multi-nation download finished either. So letting
+# download_in_progress_or_done() unconditionally trigger on every mapd_config/mapd
+# restart can leave a fully-provisioned device with real, already-complete map data stuck
+# never checking position at all, for as long as a full redundant redownload takes
+# (multiple minutes even on a fast connection) - this is suspected to be the root cause
+# of the long-standing "tileLoaded stuck false" bug (see CLAUDE.md's Known open issue /
+# [[xnor-openpilot-slc-architecture]]), not just something hit during today's resync
+# deploy. A rough on-disk file-count heuristic avoids re-triggering the immediate/initial
+# path when there's clearly already a real, substantial dataset present - the weekly
+# update_check_due() path below is still the real mechanism for legitimate refreshes, and
+# still runs regardless (so a genuinely stale/partial dataset still eventually recovers).
+EXISTING_DATA_FILE_THRESHOLD = 500
+
+
+def has_existing_map_data() -> bool:
+  offline_dir = os.path.join(MAPD_BIN_DIR, 'offline')
+  if not os.path.isdir(offline_dir):
+    return False
+  count = 0
+  for _root, _dirs, files in os.walk(offline_dir):
+    count += len(files)
+    if count > EXISTING_DATA_FILE_THRESHOLD:
+      return True
+  return False
+
+
 def on_unmetered_wifi(sm: messaging.SubMaster) -> bool:
   ds = sm['deviceState']
   return ds.networkType in WIFI_LIKE_NETWORKS and not ds.networkMetered
@@ -205,6 +240,10 @@ def main():
   sm = messaging.SubMaster(['mapdExtendedOut', 'mapdOut', 'deviceState', 'carState'])
   accept_watcher = SpeedLimitAcceptWatcher()
 
+  # computed once at startup - see has_existing_map_data()'s own comment for why this
+  # isn't just folded into the loop condition below unconditionally.
+  had_existing_data_at_startup = has_existing_map_data()
+
   last_retry = 0.
   rk = Ratekeeper(TICK_HZ, print_delay_threshold=None)
   while True:
@@ -212,7 +251,7 @@ def main():
     now = time.monotonic()
 
     if now - last_retry > RETRY_PERIOD:
-      if not download_in_progress_or_done(sm):
+      if not had_existing_data_at_startup and not download_in_progress_or_done(sm):
         send_download_trigger(pm)
         last_retry = now
       elif update_check_due(params) and on_unmetered_wifi(sm):
