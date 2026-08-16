@@ -235,6 +235,19 @@ def ensure_running(procs: ValuesView[ManagerProcess], started: bool, params: Par
       p.stop(block=False)
 
   for p in running:
+    # xnor: start() is a no-op once self.proc is set, dead or not - a process that
+    # crashed/was killed unexpectedly while it should still be running would otherwise
+    # never come back (confirmed live 2026-08-16: the previously-reliable "kill mapd,
+    # manager relaunches it" recovery silently stopped working on this dev-branch
+    # process.py). stop() on an already-dead proc just clears self.proc/shutting_down
+    # without blocking or signaling anything live, so this is a cheap no-op the rest of
+    # the time. See process_config.py's restart_if_crash removal notes for how this fork
+    # used to control this per-process before the resync; this restores it unconditionally
+    # instead, since a manager that doesn't restart a process it thinks should be running
+    # isn't behaving as a process manager at all - not something that should need opting
+    # into per-process.
+    if p.proc is not None and p.proc.exitcode is not None:
+      p.stop(block=False)
     p.start()
 
   return running
