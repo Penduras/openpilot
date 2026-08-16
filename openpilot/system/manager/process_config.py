@@ -70,8 +70,7 @@ def mapd_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
 
 def mapd_ready(started: bool, params: Params, CP: car.CarParams) -> bool:
   # xnor: gate on the binary itself, not just its directory - mapd_config.py downloads it
-  # in the background and this must stay False until that download actually finishes,
-  # since NativeProcess never auto-restarts after a failed launch (restart_if_crash=False).
+  # in the background and this must stay False until that download actually finishes.
   return mapd_enabled(started, params, CP) and bool(os.path.exists(MAPD_PATH))
 
 def livestream(started: bool, params: Params, CP: car.CarParams) -> bool:
@@ -87,7 +86,6 @@ def not_(*fns):
   return lambda *args: operator.not_(*(fn(*args) for fn in fns))
 
 mapd_native_process = NativeProcess("mapd", Paths.mapd_root(), ["bash", "-c", f"{MAPD_PATH} > /dev/null 2>&1"], mapd_ready)
-mapd_native_process.restart_if_crash = True
 
 procs = [
   DaemonProcess("manage_athenad", "openpilot.system.athena.manage_athenad", "AthenadPid"),
@@ -137,18 +135,27 @@ procs = [
   PythonProcess("uploader", "openpilot.system.loggerd.uploader", always_run),
 
   # xnor: Speed Limit Control (mapd v2 - pfeiferj/mapd), ported from sunnypilot.
-  # restart_if_crash=True on both: mapd_config disappeared once during bench testing with
-  # no crash log, no OOM kill, no signal in dmesg - cause unconfirmed, so make it self-heal
-  # regardless. NativeProcess's constructor doesn't take restart_if_crash, so it's set
-  # afterward (it's just a plain attribute on the ManagerProcess base class).
+  # mapd_config disappeared once during bench testing with no crash log, no OOM kill, no
+  # signal in dmesg - cause unconfirmed. Pre-2026-08-16-resync, this fork carried its own
+  # `restart_if_crash` flag on ManagerProcess to force a self-heal regardless of cause.
+  # xnor-tech's upstream restructure (resync merge a74adfe7b5) removed that mechanism
+  # entirely - `restart_if_crash` isn't read anywhere in process.py anymore, so setting it
+  # (as this file used to, both as a constructor kwarg here and as a post-construction
+  # attribute on mapd_native_process below) was silently inert, and passing it as a
+  # constructor kwarg is a hard TypeError against the new PythonProcess.__init__ signature
+  # (caught 2026-08-16 as a manager.py boot crash during the first dev-branch device
+  # deploy). Not yet reinstated under the new architecture - ensure_running()'s per-tick
+  # start() is a no-op once self.proc is set, dead or not, so an unexpected mapd_config
+  # crash may currently NOT self-heal the way it used to. Needs verifying on a real device
+  # before trusting this the way the old behavior was trusted.
   mapd_native_process,
-  PythonProcess("mapd_config", "openpilot.selfdrive.mapd.mapd_config", mapd_enabled, restart_if_crash=True),
+  PythonProcess("mapd_config", "openpilot.selfdrive.mapd.mapd_config", mapd_enabled),
 
   # xnor: Tailscale on/off toggle (remote reachability for diagnostics off the home LAN,
   # see memory: xnor_openpilot_deploy_gotchas). always_run rather than gated on the
   # TailscaleEnabled param itself - this watcher has to keep running even while the
   # toggle is off, so it's there to react the moment someone turns it on.
-  PythonProcess("tailscale_config", "openpilot.selfdrive.tailscale.tailscale_config", always_run, restart_if_crash=True),
+  PythonProcess("tailscale_config", "openpilot.selfdrive.tailscale.tailscale_config", always_run),
 
   # debug procs
   NativeProcess("bridge", "openpilot/cereal/messaging", ["./bridge"], notcar),
