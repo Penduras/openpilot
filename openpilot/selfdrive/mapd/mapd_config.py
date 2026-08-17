@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 import datetime
 import os
+import signal
 import time
 
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal import custom, log
 from openpilot.common.params import Params
 from openpilot.common.realtime import Ratekeeper
-from openpilot.selfdrive.mapd import MAPD_BIN_DIR, OSM_DOWNLOAD_PATH
+from openpilot.common.swaglog import cloudlog
+from openpilot.selfdrive.mapd import MAPD_BIN_DIR, MAPD_PATH, OSM_DOWNLOAD_PATH
 from openpilot.selfdrive.mapd.actions import send_accept_speed_limit
 from openpilot.selfdrive.mapd.mapd_installer import MapdInstallManager
 
@@ -160,6 +162,47 @@ def update_check_due(params: Params) -> bool:
   return last_check is None or (now - last_check) > UPDATE_CHECK_INTERVAL
 
 
+# xnor: confirmed live 2026-08-17 - mapd's native binary can go completely silent (zero
+# mapdOut messages) indefinitely with good GPS and valid, already-loaded on-disk map data
+# present, i.e. NOT the already-fixed redownload-blocking bug above. /dev/shm segment
+# mtimes showed it published exactly once right at process start, then its single-
+# threaded main loop never completed a second iteration - most likely stuck inside its
+# very first FindWaysAroundPosition() file read (mapd's own source has no network calls
+# or retry loops on that path, so this looks like a lower-level stall this fork's code
+# can't see into, not a logic bug reachable from here). A plain process restart cleared
+# it immediately when done manually on a real drive, so rather than chase mapd's own
+# internals further, this watches for the same silence and does that restart
+# automatically: kill just the native binary and let manager's ensure_running() (see
+# [[xnor-openpilot-deploy-gotchas]]) relaunch it fresh.
+MAPD_OUT_WATCHDOG_TIMEOUT = 90.  # seconds - well past normal cold-GPS startup, still
+                                 # recovers within most drives rather than staying blind
+
+
+def find_mapd_native_pid() -> int | None:
+  mapd_path_bytes = MAPD_PATH.encode()
+  for entry in os.scandir('/proc'):
+    if not entry.name.isdigit():
+      continue
+    try:
+      with open(f'/proc/{entry.name}/cmdline', 'rb') as f:
+        cmdline = f.read()
+    except OSError:
+      continue
+    if mapd_path_bytes in cmdline:
+      return int(entry.name)
+  return None
+
+
+def restart_stuck_mapd_native(seconds_silent: float) -> None:
+  pid = find_mapd_native_pid()
+  cloudlog.event("mapd_config.mapdOut_watchdog_restart", seconds_silent=seconds_silent, pid=pid, error=True)
+  if pid is not None:
+    try:
+      os.kill(pid, signal.SIGTERM)
+    except OSError:
+      pass
+
+
 class SpeedLimitAcceptWatcher:
   """Auto-accepts any resolved speed limit change immediately, no driver confirmation
   needed either direction - deliberate policy choice (not the original design: this
@@ -245,10 +288,17 @@ def main():
   had_existing_data_at_startup = has_existing_map_data()
 
   last_retry = 0.
+  last_mapd_out = time.monotonic()
   rk = Ratekeeper(TICK_HZ, print_delay_threshold=None)
   while True:
     sm.update(0)
     now = time.monotonic()
+
+    if sm.updated['mapdOut']:
+      last_mapd_out = now
+    elif now - last_mapd_out > MAPD_OUT_WATCHDOG_TIMEOUT:
+      restart_stuck_mapd_native(now - last_mapd_out)
+      last_mapd_out = now  # don't re-trigger every tick while the restart takes effect
 
     if now - last_retry > RETRY_PERIOD:
       if not had_existing_data_at_startup and not download_in_progress_or_done(sm):
