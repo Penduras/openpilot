@@ -61,6 +61,19 @@ COOP_STEER_OFFSET_RATE = 30.  # deg/s - max rate the offset itself may change, i
                                # how fast the driver's torque itself changes, so a sudden
                                # torque spike can't produce a one-tick jump in commanded angle
 
+# xnor: 2026-08-19 - found via rlog replay of the first test drive (see
+# xnor-openpilot-slc-architecture memory for the full analysis): a large residual offset left
+# over from an earlier correction could linger for close to a second unwinding at
+# COOP_STEER_OFFSET_RATE while the driver had already applied real, deadzone-exceeding torque
+# in the opposite direction - worst observed case was a -25.5deg offset still fighting a fresh
+# +0.46 Nm reversal. A real sign reversal in the driver's own torque is an unambiguous "I want
+# the opposite direction now" signal, so it doesn't need the same conservative rate a fresh
+# same-direction nudge does - allow unwinding substantially faster in that specific case, still
+# rate-limited (not an instant snap) and well under panda's own ~250 deg/s EPS-fault ceiling.
+COOP_STEER_UNWIND_RATE = 150.  # deg/s - only applied when the driver's current (deadzone-
+                                # filtered) torque actively opposes the sign of the offset we're
+                                # currently holding
+
 
 class LatControlAngle(LatControl):
   def __init__(self, CP, CI, dt):
@@ -85,7 +98,11 @@ class LatControlAngle(LatControl):
     ratio = 0. if torque_range <= 0 else max(-1., min(1., driver_torque_dz / torque_range))
     target_offset = ratio * max_offset * (1.0 - self.override_blend)
 
-    max_delta = COOP_STEER_OFFSET_RATE * self.dt
+    # real driver torque actively opposing the offset we're currently holding is an unambiguous
+    # "the opposite direction now" signal - unwind faster than a fresh same-direction nudge
+    opposing = self.coop_steer_offset != 0. and driver_torque_dz * self.coop_steer_offset < 0.
+    rate = COOP_STEER_UNWIND_RATE if opposing else COOP_STEER_OFFSET_RATE
+    max_delta = rate * self.dt
     return max(self.coop_steer_offset - max_delta, min(self.coop_steer_offset + max_delta, target_offset))
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
