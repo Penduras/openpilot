@@ -26,13 +26,67 @@ OVERRIDE_RELEASE_TAU = 0.5  # seconds
 # without touching the hard disengage path itself - same as the original design intent.
 OVERRIDE_ENGAGE_TAU = 0.1  # seconds
 
+# xnor: 2026-08-19 - Tesla-only "cooperative steering" light-touch nudge, for corrective
+# torque below the steeringPressed threshold (1.0 Nm on Tesla - opendbc/car/tesla/values.py
+# STEER_THRESHOLD; not imported here since this file is shared across brands, so
+# COOP_STEER_FULL_NM below is a self-contained approximation of that scale, not a hard
+# link to it). Below that threshold nothing happened at all before this: a light nudge to
+# correct the model's line either did nothing or had to be pushed hard enough to trigger a
+# full override_blend takeover. Idea from sunnypilot's community "cooperative steering"
+# work (dzid26/sunnypilot, branch vtb-sla, opendbc/sunnypilot/car/tesla/coop_steering.py) -
+# NOT a direct port. That code depends on a `control_type` passthrough (control_type==2,
+# "LANE_KEEP_ASSIST") that this car's actual safety mode never exposes (confirmed against
+# our own opendbc_repo submodule - tesla_legacy.h's tx_hook only accepts control_type
+# 0/NONE or 1/ANGLE_CONTROL for anything openpilot sends). Community member Nitrotito hit
+# the same wall on a legacy-CAN HW1 car and worked around it the way this does: convert
+# torque into an angle offset added before the existing angle-rate limiter, riding through
+# the same ANGLE_CONTROL path unchanged instead of needing a new control type panda would
+# reject.
+#
+# Deliberately conservative and NOT live-verified yet (built and validated offline only,
+# 2026-08-19) - needs a real drive to confirm both the feel/tuning AND the sign convention
+# (steeringTorque and steeringAngleDeg are both raw EPAS signals negated the same way in
+# carstate.py, and desire_helper.py already trusts steeringTorque's sign for lane-change
+# intent, so this should be directionally consistent - but that's inference from code, not
+# confirmed on the road).
+COOP_STEER_DEADZONE_NM = 0.3  # Nm - filters steering-wheel weight/bias noise, similar scale
+                               # to dzid26's own 0.5 Nm deadzone
+COOP_STEER_FULL_NM = 1.0  # Nm - torque at which the nudge reaches its own max offset; chosen
+                           # to roughly hand off to the full override_blend takeover around
+                           # where steeringPressed itself triggers, not imported as a hard link
+COOP_STEER_MAX_LAT_ACCEL = 1.5  # m/s^2 - deliberately gentler than the ~3.6 m/s^2 ISO/panda
+                                 # ceiling other code in this stack uses - a light-touch nudge,
+                                 # not a takeover
+COOP_STEER_OFFSET_RATE = 30.  # deg/s - max rate the offset itself may change, independent of
+                               # how fast the driver's torque itself changes, so a sudden
+                               # torque spike can't produce a one-tick jump in commanded angle
+
 
 class LatControlAngle(LatControl):
   def __init__(self, CP, CI, dt):
     super().__init__(CP, CI, dt)
     self.sat_check_min_speed = 5.
     self.use_steer_limited_by_safety = CP.brand in ("tesla", "hyundai")
+    self.is_tesla = CP.brand == "tesla"
     self.override_blend = 0.0  # 0 = fully model-commanded, 1 = fully following driver's angle
+    self.coop_steer_offset = 0.0  # deg - Tesla-only light-touch torque nudge, see constants above
+
+  def _update_coop_steer_offset(self, CS, VM) -> float:
+    """Light-touch torque-proportional angle nudge for corrective input below a full
+    override, fading out as override_blend ramps in so the handoff stays smooth."""
+    torque = CS.steeringTorque
+    driver_torque_dz = math.copysign(max(0., abs(torque) - COOP_STEER_DEADZONE_NM), torque)
+
+    v_ego_raw = max(CS.vEgo, 1.)
+    max_curvature = COOP_STEER_MAX_LAT_ACCEL / (v_ego_raw ** 2)
+    max_offset = abs(math.degrees(VM.get_steer_from_curvature(max_curvature, CS.vEgo, 0.)))
+
+    torque_range = COOP_STEER_FULL_NM - COOP_STEER_DEADZONE_NM
+    ratio = 0. if torque_range <= 0 else max(-1., min(1., driver_torque_dz / torque_range))
+    target_offset = ratio * max_offset * (1.0 - self.override_blend)
+
+    max_delta = COOP_STEER_OFFSET_RATE * self.dt
+    return max(self.coop_steer_offset - max_delta, min(self.coop_steer_offset + max_delta, target_offset))
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
     angle_log = log.ControlsState.LateralAngleState.new_message()
@@ -41,6 +95,7 @@ class LatControlAngle(LatControl):
       angle_log.active = False
       angle_steers_des = float(CS.steeringAngleDeg)
       self.override_blend = 0.0
+      self.coop_steer_offset = 0.0
     else:
       angle_log.active = True
       model_angle_des = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll))
@@ -51,7 +106,10 @@ class LatControlAngle(LatControl):
       else:
         self.override_blend = max(0.0, self.override_blend - self.dt / OVERRIDE_RELEASE_TAU)
 
-      angle_steers_des = self.override_blend * CS.steeringAngleDeg + (1.0 - self.override_blend) * model_angle_des
+      self.coop_steer_offset = self._update_coop_steer_offset(CS, VM) if self.is_tesla else 0.0
+
+      angle_steers_des = self.override_blend * CS.steeringAngleDeg + \
+                          (1.0 - self.override_blend) * (model_angle_des + self.coop_steer_offset)
 
     if self.use_steer_limited_by_safety:
       # these cars' carcontrollers calculate max lateral accel and jerk, so we can rely on carOutput for saturation
