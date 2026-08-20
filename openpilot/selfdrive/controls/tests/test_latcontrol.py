@@ -13,7 +13,7 @@ from opendbc.car.vehicle_model import VehicleModel
 from openpilot.common.realtime import DT_CTRL
 from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
-from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle, COOP_STEER_DEADZONE_NM, COOP_STEER_FULL_NM
+from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle, COOP_STEER_DEADZONE_NM, COOP_STEER_FULL_NM, COOP_STEER_ABS_MAX_DEG
 
 
 class TestLatControl(OpenpilotTestCase):
@@ -106,3 +106,17 @@ class TestCoopSteerOffset(OpenpilotTestCase):
     controller = LatControlAngle(CP.as_reader(), CI, DT_CTRL)
     offset = self._run(controller, VM, COOP_STEER_FULL_NM, False, ticks=50)
     assert offset == 0.
+
+  def test_low_speed_offset_stays_under_abs_cap(self):
+    # xnor: 2026-08-20 - regression test for the low-speed blowup found via rlog replay of a
+    # real multi-drive session: the lateral-accel-based speed scaling divides by v_ego^2 and
+    # produced up to -64.8deg at under 2 m/s from a ~1 Nm nudge, nowhere near "light touch".
+    controller, VM = self._make_controller()
+    CS = car.CarState.new_message()
+    CS.vEgo = 0.5  # near-stopped, parking-lot speed
+    CS.steeringTorque = COOP_STEER_FULL_NM
+    CS.steeringPressed = False
+    params = log.VehicleParameters.new_message()
+    for _ in range(200):
+      controller.update(True, CS, VM, params, False, 0., False, 0.2)
+    assert abs(controller.coop_steer_offset) <= COOP_STEER_ABS_MAX_DEG + 1e-6

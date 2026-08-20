@@ -74,6 +74,18 @@ COOP_STEER_UNWIND_RATE = 150.  # deg/s - only applied when the driver's current 
                                 # filtered) torque actively opposes the sign of the offset we're
                                 # currently holding
 
+# xnor: 2026-08-20 - found via rlog replay of the first real multi-drive session (~82 min across
+# 5 drives, see xnor-openpilot-slc-architecture memory): COOP_STEER_MAX_LAT_ACCEL's speed scaling
+# (dividing by v_ego^2) is exactly the right physics for a constant lateral-accel *feel* at real
+# driving speeds, but blows up as speed approaches the v_ego floor - a modest ~1 Nm nudge could
+# reach -64.8deg at under 2 m/s (parking-lot speeds), while the same torque only produced ~11deg
+# at highway speed. Not "light touch" at all below highway speed - the opposite of the design
+# intent. A flat absolute ceiling, independent of speed, keeps the physically-motivated scaling
+# at real driving speeds (where it already naturally stays under this) while preventing the
+# low-speed blowup entirely.
+COOP_STEER_ABS_MAX_DEG = 12.  # deg - matches roughly what the speed-scaled formula already
+                                # produced naturally at highway speed with full torque
+
 
 class LatControlAngle(LatControl):
   def __init__(self, CP, CI, dt):
@@ -92,7 +104,7 @@ class LatControlAngle(LatControl):
 
     v_ego_raw = max(CS.vEgo, 1.)
     max_curvature = COOP_STEER_MAX_LAT_ACCEL / (v_ego_raw ** 2)
-    max_offset = abs(math.degrees(VM.get_steer_from_curvature(max_curvature, CS.vEgo, 0.)))
+    max_offset = min(abs(math.degrees(VM.get_steer_from_curvature(max_curvature, CS.vEgo, 0.))), COOP_STEER_ABS_MAX_DEG)
 
     torque_range = COOP_STEER_FULL_NM - COOP_STEER_DEADZONE_NM
     ratio = 0. if torque_range <= 0 else max(-1., min(1., driver_torque_dz / torque_range))
