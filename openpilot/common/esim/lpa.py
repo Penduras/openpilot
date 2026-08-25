@@ -61,6 +61,12 @@ TAG_AUTH_SERVER = 0xBF38
 TAG_CANCEL_SESSION = 0xBF41
 TAG_OK = 0xA0
 
+# SGP.22 CancelSessionReason enum (ES10b.CancelSession request `reason` field). Only
+# UNDEFINED and LOAD_BPP_EXECUTION_ERROR are actually used here - see cancel_session()'s
+# call site for why the distinction matters.
+CANCEL_REASON_LOAD_BPP_EXECUTION_ERROR = 5
+CANCEL_REASON_UNDEFINED = 127
+
 PROFILE_OK = 0x00
 PROFILE_NOT_IN_DISABLED_STATE = 0x02
 PROFILE_CAT_BUSY = 0x05
@@ -602,7 +608,7 @@ def parse_metadata(b64_metadata: str) -> dict:
   return decode_struct(root, PROFILE)
 
 
-def cancel_session(client: AtClient, transaction_id: bytes, reason: int = 127) -> str:
+def cancel_session(client: AtClient, transaction_id: bytes, reason: int = CANCEL_REASON_UNDEFINED) -> str:
   content = encode_tlv(0x80, transaction_id) + encode_tlv(0x81, bytes([reason]))
   response = es10x_command(client, encode_tlv(TAG_CANCEL_SESSION, content))
   return b64e(response)
@@ -622,10 +628,11 @@ def _b64_field(data: dict, key: str) -> str:
   return base64_trim(data[key])
 
 
-def _cancel_session_safe(client: AtClient, smdp: str, tx_id: str, session: requests.Session) -> None:
+def _cancel_session_safe(client: AtClient, smdp: str, tx_id: str, session: requests.Session,
+                          reason: int = CANCEL_REASON_UNDEFINED) -> None:
   b64_cancel = ""
   try:
-    b64_cancel = cancel_session(client, b64d(tx_id))
+    b64_cancel = cancel_session(client, b64d(tx_id), reason)
   except Exception:
     pass
   try:
@@ -642,6 +649,7 @@ def download_profile(client: AtClient, activation_code: str) -> str:
   challenge, euicc_info = get_challenge_and_info(client)
   session = requests.Session()
   tx_id = None
+  reached_load_bpp = False
 
   try:
     # step 1: initiate authentication
@@ -672,11 +680,20 @@ def download_profile(client: AtClient, activation_code: str) -> str:
     bpp = es9p_request(smdp, "getBoundProfilePackage", {
       "transactionId": tx_id, "prepareDownloadResponse": b64_prep,
     }, "GetBoundProfilePackage", session=session)
+    reached_load_bpp = True
     load_bpp(client, _b64_field(bpp, "boundProfilePackage"))
     return iccid
   except Exception:
     if tx_id:
-      _cancel_session_safe(client, smdp, tx_id, session)
+      # xnor: 2026-08-25 - IDEMIA support confirmed (via Talkmore, real SM-DP+ server logs)
+      # that our previous hardcoded CANCEL_REASON_UNDEFINED (127) reason code on cancelSession
+      # wasn't recognized/handled by their platform at all ("couldn't be parsed by SMDP+ as it
+      # is undefined by our platform"), masking the real installFailedDueToPEProcessingError
+      # that load_bpp() had already hit. Use the specific, correct reason when the failure was
+      # actually a BPP-install error - SGP.22's CancelSessionReason enum has a dedicated value
+      # for exactly this case, confirmed against estkme-group/lpac's own implementation.
+      reason = CANCEL_REASON_LOAD_BPP_EXECUTION_ERROR if reached_load_bpp else CANCEL_REASON_UNDEFINED
+      _cancel_session_safe(client, smdp, tx_id, session, reason)
     raise
   finally:
     session.close()
