@@ -24,7 +24,20 @@ from openpilot.selfdrive.mapd import MAPD_PATH, MAPD_BIN_DIR
 # than guessing. Also fixes the speedLimitAccepted bug (our SpeedLimitAcceptWatcher
 # workaround stays in place regardless) and a signed-vs-magnitude bug in vision
 # curve detection that likely made SCC-Vision only react to curves one way.
-VERSION = "v2.3.0"
+#
+# v2.3.0 -> v2.3.1 (2026-08-26): verified SETTINGS_VERSION is unchanged (still 2)
+# in the real v2.3.1 settings.go - build_settings() needs no changes this time.
+# settings.go now also has a real Migrate() function invoked automatically on any
+# future version mismatch, instead of the old hard-crash-on-mismatch behavior that
+# caused the v2.1.0->v2.3.0 incident - a real safety improvement upstream.
+# Release notes worth noting: "message publishing moved to its own thread with
+# constant 20Hz publish rate" - directly touches the single-threaded-main-loop
+# root cause behind both mapd bugs this fork already worked around on its own
+# side (the tileLoaded stuck bug and the mapdOut silent-hang watchdog in
+# mapd_config.py) - may reduce how often the watchdog ever needs to fire, though
+# our own workarounds are staying in place regardless since neither bug's root
+# cause was ever confirmed 100% fixed upstream, just plausibly addressed.
+VERSION = "v2.3.1"
 URL = f"https://github.com/pfeiferj/mapd/releases/download/{VERSION}/mapd"
 
 
