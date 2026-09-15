@@ -14,13 +14,20 @@ work yet:
    it's specific to the Plex-hosted container.
 
 3. Quick sanity check only, not a rebuild: confirm the dev toolchain still works —
-   `uv sync --extra dev --extra testing --extra docs` (do NOT add `--all-extras` or
-   `--extra tools`; the `tools` extra pulls a full driving-simulator dependency this
-   project doesn't use), `capnp compile` + `scons -j8 cereal/`, `python3 -m py_compile`
-   and `ruff check` against this fork's actual changes (`selfdrive/mapd/`,
-   `selfdrive/tailscale/`). This was fully validated clean on 2026-08-15, so it should
-   be fast — just confirm and note anything that doesn't pass, don't go debugging a
-   problem that probably isn't there.
+   `uv sync --extra testing --extra tools` (the `dev`/`docs` extras no longer exist as
+   of the 2026-08 xnor-dev resync — `dev`'s only member folded into `tools`, `docs` was
+   dropped; `tools`'s `metadrive-simulator` line is itself commented out in
+   `pyproject.toml`, so this extra is now just `matplotlib` + native libs, and it's
+   actually REQUIRED — `scons` needs `tools`'s `ncurses` dep just to read `SConstruct`.
+   Do NOT add `--all-extras`. If `pyproject.toml`'s extras ever change again, re-derive
+   the right flags from the file directly (`grep -n "optional-dependencies" -A 30
+   pyproject.toml`) rather than trusting this note blindly), `capnp compile` +
+   `scons -j8 openpilot/cereal/` (note the `openpilot/` prefix — this repo adopted an
+   `openpilot/`-rooted layout in the 2026-08 resync, so it's no longer bare `cereal/`),
+   `python3 -m py_compile` and `ruff check` against this fork's actual changes
+   (`openpilot/selfdrive/mapd/`, `openpilot/selfdrive/tailscale/`). This was fully
+   validated clean on 2026-09-14, so it should be fast — just confirm and note anything
+   that doesn't pass, don't go debugging a problem that probably isn't there.
 
 Then give a short status summary: what you learned, and whether the environment is
 ready to work in.
