@@ -9,10 +9,12 @@ only exist on whichever machine wrote them, so don't assume they're loaded.
 
 ## Device access
 
-- Comma reachable via SSH: `comma@192.168.1.193` (home LAN) or `comma@100.125.74.75`
-  (Tailscale — works off-LAN too, e.g. mid-drive). No static `authorized_keys` file on
-  the device; SSH access is driven entirely by the `GithubUsername`/`GithubSshKeys`
-  params, synced (one-shot, NOT automatic) from `https://github.com/<user>.keys`.
+- Comma reachable via SSH as user `comma`, both on the home LAN and over Tailscale
+  (works off-LAN too, e.g. mid-drive) — actual addresses deliberately not recorded in
+  this file since it's public; ask the assistant, it keeps them in its own private
+  memory. No static `authorized_keys` file on the device; SSH access is driven entirely
+  by the `GithubUsername`/`GithubSshKeys` params, synced (one-shot, NOT automatic) from
+  `https://github.com/<user>.keys`.
 - Correct Python for one-off on-device checks: `/usr/local/venv/bin/python3` with cwd
   `/data/openpilot` (bare `python3` lacks `zmq`; a script run as a *file* rather than
   via `-c`/`-m` breaks `import openpilot...` — the repo root has a self-referencing
