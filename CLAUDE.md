@@ -35,18 +35,27 @@ only exist on whichever machine wrote them, so don't assume they're loaded.
 
 Speed Limit Control / Smart Cruise Control - Map & Vision (mapd v2.3.0,
 `github.com/pfeiferj/mapd`), Tesla cruise-stalk-cancel wired to a real disengage event,
-sunnypilot's Quiet Mode, a Tailscale on/off settings toggle for off-LAN reachability, and
-a driver-override easing feature for angle-controlled steering (`latcontrol_angle.py`)
+sunnypilot's Quiet Mode, a Tailscale on/off settings toggle for off-LAN reachability, a
+driver-override easing feature for angle-controlled steering (`latcontrol_angle.py`)
 that blends toward the driver's actual angle while they're overriding instead of fighting
-them. Full detail on how each of these actually works, and the real incidents that shaped
-them (a SIGBUS crash from a mismatched cereal queue size, an mapd v2.3.0 settings-schema
-migration panic, a race condition between this fork's speed-limit accept-watcher and
-mapd's own internal accept-flag, a personality-scoped default that silently activated,
-resolved 2026-08-16: the mapd `tileLoaded` stuck bug below, and — on `dev` only as of
-2026-08-16, not yet merged to `main` — a real safety-relevant fix to the steering-override
-easing that could otherwise trip a hard EPAS fault mid-corner), is worth asking the
-assistant about — it maintains its own more detailed notes on this, separate from this
-file.
+them, and a Tesla-only "cooperative steering" light-touch torque nudge (also in
+`latcontrol_angle.py`) that closes the dead zone below the hard override threshold. Both
+`main` and `dev` are content-identical as of 2026-09-14 (last merge point) and carry all
+of the above, including the override-easing safety fix, all three cooperative-steering
+iterations, and the mapd_installer v2.3.1 / tinygrad v0.14.0 bumps — the device's actual
+checked-out branch *name* has flipped between `main` and `dev` more than once, so don't
+assume either name without checking. Full detail on how
+each of these actually works, and the real incidents that shaped them (a SIGBUS crash
+from a mismatched cereal queue size, an mapd v2.3.0 settings-schema migration panic, a
+race condition between this fork's speed-limit accept-watcher and mapd's own internal
+accept-flag, a personality-scoped default that silently activated, the mapd `tileLoaded`
+stuck bug and a second, distinct mapd silent-hang bug — both resolved, the safety-relevant
+fix to the steering-override easing that could otherwise trip a hard EPAS fault
+mid-corner, and three tuning iterations on the cooperative-steering feature found via rlog
+replay of real drives), is worth asking the assistant about — it maintains its own more
+detailed notes on this, separate from this file. A Conditional Experimental Mode feature
+was also built and real-drive tested but was ultimately scrapped (2026-08-18) — don't
+present it as available.
 
 ## Working practices
 
