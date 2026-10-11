@@ -15,8 +15,8 @@ from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 from openpilot.system.ui.widgets import Widget
 
 CLIP_MARGIN = 500
-LEAD_LABEL_FONT_SIZE = 30
-LEAD_LABEL_MIN_SPEED = 1.0  # m/s, below this a time gap is meaningless
+LEAD_DISTANCE_FONT_SIZE = 40
+LEAD_DISTANCE_TOP_MARGIN = 8
 M_TO_FT = 3.28084
 MIN_DRAW_DISTANCE = 10.0
 MAX_DRAW_DISTANCE = 100.0
@@ -51,16 +51,10 @@ class LeadVehicle:
   glow: list[tuple[float, float]] = field(default_factory=list)
   chevron: list[tuple[float, float]] = field(default_factory=list)
   fill_alpha: int = 0
-  label: str = ""
-  label_x: float = 0.0
-  label_y: float = 0.0
 
 
-def format_lead_label(d_rel: float, v_ego: float, is_metric: bool) -> str:
-  dist = f"{d_rel:.0f} m" if is_metric else f"{d_rel * M_TO_FT:.0f} ft"
-  if v_ego < LEAD_LABEL_MIN_SPEED:
-    return dist
-  return f"{dist}  {d_rel / v_ego:.1f}s"
+def format_lead_distance(d_rel: float, is_metric: bool) -> str:
+  return f"{d_rel:.0f} m" if is_metric else f"{d_rel * M_TO_FT:.0f} ft"
 
 
 class ModelRenderer(Widget):
@@ -68,7 +62,8 @@ class ModelRenderer(Widget):
     super().__init__()
     self._longitudinal_control = False
     self._experimental_mode = False
-    self._lead_label_font = gui_app.font(FontWeight.SEMI_BOLD)
+    self._lead_distance_font = gui_app.font(FontWeight.SEMI_BOLD)
+    self._lead_distance_text = ""
     self._blend_filter = FirstOrderFilter(1.0, 0.25, 1 / gui_app.target_fps)
     self._prev_allow_throttle = True
     self._lane_line_probs = np.zeros(4, dtype=np.float32)
@@ -179,6 +174,7 @@ class ModelRenderer(Widget):
     """Update positions of lead vehicles"""
     self._lead_vehicles = [LeadVehicle(), LeadVehicle()]
     leads = [radar_state.leadOne, radar_state.leadTwo]
+    self._lead_distance_text = format_lead_distance(leads[0].dRel, ui_state.is_metric) if leads[0].present else ""
 
     for i, lead_data in enumerate(leads):
       if lead_data and lead_data.present:
@@ -189,14 +185,7 @@ class ModelRenderer(Widget):
         z = self._path.raw_points[idx, 2] if idx < len(self._path.raw_points) else 0.0
         point = self._map_to_screen(d_rel, -y_rel, z + self._path_offset_z)
         if point:
-          lead_vehicle = self._update_lead_vehicle(d_rel, v_rel, point, self._rect)
-          if i == 0:
-            apex_x, _ = lead_vehicle.chevron[1]
-            _, base_y = lead_vehicle.chevron[0]
-            lead_vehicle.label = format_lead_label(d_rel, ui_state.sm['carState'].vEgo, ui_state.is_metric)
-            lead_vehicle.label_x = apex_x
-            lead_vehicle.label_y = base_y + 6
-          self._lead_vehicles[i] = lead_vehicle
+          self._lead_vehicles[i] = self._update_lead_vehicle(d_rel, v_rel, point, self._rect)
 
   def _update_model(self, lead, path_x_array):
     """Update model visualization data based on model message"""
@@ -390,12 +379,12 @@ class ModelRenderer(Widget):
       rl.draw_triangle_fan(lead.glow, len(lead.glow), rl.Color(218, 202, 37, 255))
       rl.draw_triangle_fan(lead.chevron, len(lead.chevron), rl.Color(201, 34, 49, lead.fill_alpha))
 
-      if lead.label:
-        text_size = measure_text_cached(self._lead_label_font, lead.label, LEAD_LABEL_FONT_SIZE)
-        x = float(np.clip(lead.label_x - text_size.x / 2, 0.0, max(0.0, self._rect.width - text_size.x)))
-        y = float(min(lead.label_y, self._rect.height - text_size.y))
-        rl.draw_text_ex(self._lead_label_font, lead.label, rl.Vector2(x + 2, y + 2), LEAD_LABEL_FONT_SIZE, 0, rl.Color(0, 0, 0, 200))
-        rl.draw_text_ex(self._lead_label_font, lead.label, rl.Vector2(x, y), LEAD_LABEL_FONT_SIZE, 0, rl.WHITE)
+    if self._lead_distance_text:
+      text_size = measure_text_cached(self._lead_distance_font, self._lead_distance_text, LEAD_DISTANCE_FONT_SIZE)
+      x = self._rect.x + (self._rect.width - text_size.x) / 2
+      y = self._rect.y + LEAD_DISTANCE_TOP_MARGIN
+      rl.draw_text_ex(self._lead_distance_font, self._lead_distance_text, rl.Vector2(x + 2, y + 2), LEAD_DISTANCE_FONT_SIZE, 0, rl.Color(0, 0, 0, 200))
+      rl.draw_text_ex(self._lead_distance_font, self._lead_distance_text, rl.Vector2(x, y), LEAD_DISTANCE_FONT_SIZE, 0, rl.WHITE)
 
   @staticmethod
   def _get_path_length_idx(pos_x_array: np.ndarray, path_height: float) -> int:
