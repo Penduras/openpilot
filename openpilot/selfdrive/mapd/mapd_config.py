@@ -64,23 +64,25 @@ WIFI_LIKE_NETWORKS = (NetworkType.wifi, NetworkType.ethernet)
 # it on lets mapd's curve/jerk tuning follow whichever personality the driver has picked,
 # instead of ignoring that choice.
 #
-# Deliberate exception: the speed-up-before-a-higher-limit behavior is the same on all three
-# personalities. speed_limit.go's SuggestNewSpeedLimit() starts suggesting the new limit once the
-# distance to the sign drops below  D = jerk_limited_distance(vEgo -> new limit) +
+# Deliberate exception: the speed-up-before-a-higher-limit behavior. speed_limit.go's
+# SuggestNewSpeedLimit() starts suggesting the new limit once the distance to the sign drops
+# below  D = jerk_limited_distance(vEgo -> new limit) +
 # speed_limit_increase_target_speed_time_offset * new_limit  (the offset term is ADDED; no
 # clamping or validation in mapd). mapd ships the upward version on only for Aggressive, with a
 # +2.0s offset - which the driver found far too early (started ~100-200 m out and reached speed
 # ~40 m BEFORE the sign). Before shadow_selfdrive_state existed this knob was silently inert
-# (CurrentPersonality() always resolved to Standard), so it surfaced as a regression. It is now
-# enabled for every personality with a NEGATIVE offset, which shifts the start toward the sign:
-# a typical 60->80 step starts ~65 m (~4 s) out and is up to speed ~55 m after the sign; small
-# steps start later still. Tuning is just this one constant (more negative = later, 0 = at speed
-# exactly at the sign, positive = earlier). The slow-down side stays mapd's default.
+# (CurrentPersonality() always resolved to Standard), so it surfaced as a regression. Aggressive
+# keeps the speed-up but with a NEGATIVE offset, which shifts the start toward the sign: a typical
+# 60->80 step starts ~65 m (~4 s) out and is up to speed ~55 m after the sign; small steps start
+# later still. Tuning is just this one constant (more negative = later, 0 = at speed exactly at
+# the sign, positive = earlier). Relaxed/Standard stay pinned OFF, as mapd ships them. The
+# slow-down side stays mapd's default.
 SPEED_UP_FOR_NEXT_LIMIT_TIME_OFFSET = -2.5  # seconds, added to mapd's jerk-limited start distance
 MAPD_SETTINGS_VERSION = 2
 
 
 def build_settings(params: Params) -> dict:
+  no_speed_up_for_next_limit = {"speed_up_for_next_speed_limit": False}
   late_speed_up_for_next_limit = {
     "speed_up_for_next_speed_limit": True,
     "speed_limit_increase_target_speed_time_offset": SPEED_UP_FOR_NEXT_LIMIT_TIME_OFFSET,
@@ -100,8 +102,8 @@ def build_settings(params: Params) -> dict:
       "hold_last_seen_speed_limit": True,
     },
     "personalities": {
-      "relaxed": late_speed_up_for_next_limit,
-      "standard": late_speed_up_for_next_limit,
+      "relaxed": no_speed_up_for_next_limit,
+      "standard": no_speed_up_for_next_limit,
       "aggressive": late_speed_up_for_next_limit,
     },
   }
