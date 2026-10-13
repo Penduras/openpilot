@@ -77,7 +77,14 @@ WIFI_LIKE_NETWORKS = (NetworkType.wifi, NetworkType.ethernet)
 # later still. Tuning is just this one constant (more negative = later, 0 = at speed exactly at
 # the sign, positive = earlier). Relaxed/Standard stay pinned OFF, as mapd ships them. The
 # slow-down side stays mapd's default.
-SPEED_UP_FOR_NEXT_LIMIT_TIME_OFFSET = -2.5  # seconds, added to mapd's jerk-limited start distance
+#
+# 2026-10-13: a negative offset cannot give a uniform start (it scales with the new limit, so big
+# steps still started 100+ m out while small ones started only at the sign; the car was nearly at
+# speed at the sign on 60->80 and 50->70). Timing is now owned by the longitudinal planner:
+# hold_for_next_limit() holds the old limit until the sign is SPEED_UP_LEAD_TIME s away. mapd's
+# trigger therefore only has to fire EARLIER than that for every step size, so the offset is back
+# at mapd's own Aggressive default (+2.0 s).
+SPEED_UP_FOR_NEXT_LIMIT_TIME_OFFSET = 2.0  # seconds, added to mapd's jerk-limited start distance
 MAPD_SETTINGS_VERSION = 2
 
 

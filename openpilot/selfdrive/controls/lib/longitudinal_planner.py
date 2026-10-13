@@ -28,6 +28,28 @@ MIN_ALLOW_THROTTLE_SPEED = 2.5
 _A_TOTAL_MAX_V = [1.7, 3.2]
 _A_TOTAL_MAX_BP = [20., 40.]
 
+# xnor: how long before a higher speed-limit sign the car may start speeding up. mapd (Aggressive
+# personality, see mapd_config.py) raises its suggested speed well before the sign, and how early
+# depends on the size of the step; hold_for_next_limit() holds the old limit until the sign is
+# this many seconds away, so every step starts at the same lead time.
+SPEED_UP_LEAD_TIME = 3.0
+
+
+def hold_for_next_limit(v_ego, speed_limit, next_limit, next_limit_dist, limit_suggested_speed, lead_time=SPEED_UP_LEAD_TIME):
+  """Cap on v_cruise while mapd's early speed-up for a higher upcoming limit is still too far out.
+
+  Returns None when no hold applies. The cap never drops below v_ego (the hold only stops the
+  car accelerating, it never makes it brake), and only applies once mapd has actually started
+  suggesting the new limit, so a gas-pedal override of the current limit is left alone."""
+  if speed_limit <= 0. or next_limit <= speed_limit + 0.1 or next_limit_dist <= 0.:
+    return None
+  if limit_suggested_speed < next_limit - 0.5:
+    return None
+  if next_limit_dist <= v_ego * lead_time:
+    return None
+  return max(speed_limit, v_ego)
+
+
 def get_max_accel(v_ego):
   return np.interp(v_ego, A_CRUISE_MAX_BP, A_CRUISE_MAX_VALS)
 
@@ -156,6 +178,10 @@ class LongitudinalPlanner:
       mapd_out = sm['mapdOut']
       if mapd_out.suggestedSpeed > 0.:
         v_cruise = min(v_cruise, mapd_out.suggestedSpeed)
+        hold = hold_for_next_limit(v_ego, mapd_out.speedLimit, mapd_out.nextSpeedLimit, mapd_out.nextSpeedLimitDistance,
+                                   mapd_out.speedLimitSuggestedSpeed)
+        if hold is not None:
+          v_cruise = min(v_cruise, hold)
 
     self.a_cruise = get_cruise_accel(sm['selfdriveState'].experimentalMode, v_cruise, v_ego,
                                      self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
