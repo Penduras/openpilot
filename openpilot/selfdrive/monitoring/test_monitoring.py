@@ -109,6 +109,24 @@ class TestMonitoring(OpenpilotTestCase):
                     (TEST_TIMESPAN - 10 - s._WHEELTOUCH_POLICY_ALERT_3_TIMEOUT) / 2) / DT_DMON)] == 3
     assert d_status.active_policy == log.DriverMonitoringState.MonitoringPolicy.wheeltouch
 
+  # xnor: left-hand-drive car. A noisy wheelOnRightProb must never make us read the passenger side
+  # (2026-10-16: it flipped on disengage, faceProb of the right side ~0.07, "no face" for minutes)
+  def test_left_hand_drive_forced(self):
+    ds = make_msg(True)
+    ds.wheelOnRightProb = 0.9
+    ds.rightDriverData.faceOrientation = [0., 0., 0.]
+    ds.rightDriverData.facePosition = [0., 0.]
+    ds.rightDriverData.faceOrientationStd = [0., 0., 0.]
+    ds.rightDriverData.facePositionStd = [0., 0.]
+    ds.rightDriverData.faceProb = 0.07
+    DM = DriverMonitoring()
+    for engaged in (True, False):
+      for _ in range(int(60 / DT_DMON)):
+        # fast enough for the wheel-side calibration to run, face visible on the left only
+        DM._update_states(ds, [0, 0, 0], 20., engaged, False)
+        assert not DM.wheel_on_right
+        assert DM.face_detected
+
   # engaged, down to orange, driver pays attention, back to normal; then down to orange, driver touches wheel
   #  - should have short orange recovery time and no green afterwards; wheel touch only recovers when paying attention
   def test_normal_driver(self):

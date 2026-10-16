@@ -86,6 +86,12 @@ class DRIVER_MONITOR_SETTINGS:
     self._WHEELPOS_DATA_AVG = 0.03
     self._WHEELPOS_DATA_VAR = 3*5.5e-5
     self._WHEELPOS_MAX_COUNT = -1
+    # xnor: this fork runs in a left-hand-drive car, so never let the wheel-side calibration pick
+    # the right-hand driver. On 2026-10-16 the model's wheelOnRightProb ran high (0.3-0.7) early in a
+    # drive, the filter crossed the threshold while engaged (switching is blocked then), and when the
+    # driver disengaged it flipped to RHD: face_detected then read the passenger side (faceProb ~0.07)
+    # and monitoring fell back to wheel-touch with alerts, though the face model saw the driver fine.
+    self._FORCE_LEFT_HAND_DRIVE = True
 
 class DriverPose:
   def __init__(self, settings):
@@ -257,7 +263,9 @@ class DriverMonitoring:
     # make sure no switching when engaged
     if op_engaged and self.wheel_on_right_last is not None and self.wheel_on_right_last != self.wheel_on_right and not demo_mode:
       self.wheel_on_right = self.wheel_on_right_last
-    driver_data = driver_state.rightDriverData if self.wheel_on_right else driver_state.leftDriverData
+    if self.settings._FORCE_LEFT_HAND_DRIVE:
+      self.wheel_on_right = False
+    driver_data =driver_state.rightDriverData if self.wheel_on_right else driver_state.leftDriverData
     if not all(len(x) > 0 for x in (driver_data.faceOrientation, driver_data.facePosition,
                                     driver_data.faceOrientationStd, driver_data.facePositionStd)):
       return
