@@ -55,6 +55,11 @@ FCW_IDXS = T_IDXS < 5.0
 T_DIFFS = np.diff(T_IDXS, prepend=[0.])
 COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
+# xnor: stock Aggressive follows at 1.25 s, which measured ~1.6 s on real drives and felt too close (2026-10-19).
+# Aggressive keeps its sharper response (jerk factor 0.5) and the late speed-up for higher limits (mapd_config.py), but
+# follows at 2.0 s (+6 m stop distance): ~50 m at 80 km/h instead of ~34 m. Standard (1.45 s) and Relaxed (1.75 s) are unchanged, so Aggressive
+# now has the LONGEST gap of the three; the HUD distance bars still read 1/2/3 by profile.
+AGGRESSIVE_T_FOLLOW = 2.0
 MIN_X_LEAD_FACTOR = 0.5
 
 def get_jerk_factor(personality=log.LongitudinalPersonality.standard):
@@ -74,7 +79,7 @@ def get_T_FOLLOW(personality=log.LongitudinalPersonality.standard):
   elif personality==log.LongitudinalPersonality.standard:
     return 1.45
   elif personality==log.LongitudinalPersonality.aggressive:
-    return 1.25
+    return AGGRESSIVE_T_FOLLOW
   else:
     raise NotImplementedError("Longitudinal personality not supported")
 
