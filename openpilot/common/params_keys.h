@@ -88,6 +88,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"LongitudinalManeuverMode", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
     {"LongitudinalPersonality", {PERSISTENT, INT, std::to_string(static_cast<int>(cereal::LongitudinalPersonality::STANDARD))}},
     {"Mads", {PERSISTENT, BOOL, "0"}},
+    {"MapdDownloadStatus", {CLEAR_ON_MANAGER_START, STRING}},
+    {"MapdRefreshRequested", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},
     {"MapdSettings", {PERSISTENT, JSON}},
     {"MapdVersion", {PERSISTENT, STRING}},
     {"NetworkMetered", {PERSISTENT, BOOL}},

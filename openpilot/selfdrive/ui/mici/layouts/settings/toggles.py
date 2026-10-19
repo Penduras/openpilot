@@ -1,10 +1,12 @@
+import datetime
+import time
 from collections.abc import Callable
 
 from openpilot.cereal import log
 
 from openpilot.system.ui.widgets.scroller import NavScroller
-from openpilot.selfdrive.ui.mici.widgets.button import BigParamControl, BigMultiParamToggle, BigToggle, GreyBigButton
-from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationCircleButton
+from openpilot.selfdrive.ui.mici.widgets.button import BigButton, BigParamControl, BigMultiParamToggle, BigToggle, GreyBigButton
+from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationCircleButton, BigConfirmationDialog, BigDialog
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.selfdrive.ui.layouts.settings.common import restart_needed_callback
 from openpilot.selfdrive.ui.ui_state import ui_state
@@ -35,6 +37,52 @@ class ExperimentalModeConfirmPage(NavScroller):
       GreyBigButton("", "Red for braking, green for acceleration, and gray for coasting."),
       accept,
     ])
+
+
+class MapDataUpdateButton(BigButton):
+  """xnor: asks mapd_config for a fresh offline map download, i.e. what the weekly check does, on demand.
+  Nothing is deleted: mapd keeps using the existing data until the new files land. The sub-label shows the
+  progress (MapdDownloadStatus, written by mapd_config) or when the last update was started."""
+  POLL_PERIOD = 0.5
+
+  def __init__(self):
+    super().__init__("update\nmap data", "", gui_app.texture("icons_mici/settings/device/update.png", 64, 64))
+    self._confirm_icon = gui_app.texture("icons_mici/settings/device/update.png", 64, 64)
+    self._last_poll = 0.
+    self.set_click_callback(self._on_click)
+    self._refresh_value()
+
+  def _refresh_value(self):
+    params = ui_state.params
+    status = params.get("MapdDownloadStatus") or ""
+    if status:
+      value = status
+    elif params.get_bool("MapdRefreshRequested"):
+      value = "requesting..."
+    else:
+      last = params.get("OsmLastUpdateCheck")
+      value = f"last update {last.strftime('%b %d').lower()}" if isinstance(last, datetime.datetime) else "no update yet"
+    if value != self.value:
+      self.set_value(value)
+
+  def _update_state(self):
+    super()._update_state()
+    now = time.monotonic()
+    if now - self._last_poll >= self.POLL_PERIOD:
+      self._last_poll = now
+      self._refresh_value()
+
+  def _on_click(self):
+    params = ui_state.params
+    if ui_state.started:
+      gui_app.push_widget(BigDialog("", "Park the car first. Speed limit features pause while the map downloads."))
+    elif not (params.get_bool("SpeedLimitControl") or params.get_bool("SmartCruiseControlMap")):
+      gui_app.push_widget(BigDialog("", "Turn on speed limit control or smart cruise control - map first."))
+    elif params.get_bool("MapdRefreshRequested") or params.get("MapdDownloadStatus"):
+      gui_app.push_widget(BigDialog("", "A map update is already running."))
+    else:
+      gui_app.push_widget(BigConfirmationDialog("slide to\nupdate map data", self._confirm_icon,
+                                                lambda: params.put_bool("MapdRefreshRequested", True)))
 
 
 class TogglesLayoutMici(NavScroller):
@@ -72,6 +120,7 @@ class TogglesLayoutMici(NavScroller):
       speed_limit_toggle,
       scc_map_toggle,
       scc_vision_toggle,
+      MapDataUpdateButton(),
     ])
 
     # Toggle lists

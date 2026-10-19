@@ -123,6 +123,59 @@ def send_download_trigger(pm: messaging.PubMaster) -> None:
   pm.send('mapdIn', msg)
 
 
+# xnor: on-demand "update map data" (settings button under the toggles, see
+# ui/mici/layouts/settings/toggles.py). The UI only sets the MapdRefreshRequested flag - mapd_config
+# is the one process allowed to publish mapdIn (msgq hard-errors on a second publisher), so it
+# turns the flag into a download. A single send is NOT reliably delivered (confirmed live
+# 2026-08-2x: a one-shot send did nothing, resending every ~300 ms was picked up on the first
+# resend), so keep resending until mapd reports the download as active. Nothing is deleted:
+# mapd keeps serving the existing data until the new files land. MapdDownloadStatus mirrors the
+# progress for the button's sub-label.
+REFRESH_REQUEST_PARAM = "MapdRefreshRequested"
+DOWNLOAD_STATUS_PARAM = "MapdDownloadStatus"
+MANUAL_RESEND_PERIOD = 0.3     # seconds between resends of the download trigger
+MANUAL_CONFIRM_TIMEOUT = 30.   # give up if mapd never reports the download as active
+FAILED_STATUS_SHOW_TIME = 30.  # seconds the "failed" note stays on the button
+FAILED_STATUS = "failed - try again"
+
+
+def format_download_status(progress) -> str:
+  if not progress.active:
+    return ""
+  if progress.totalFiles > 0:
+    return f"download {progress.downloadedFiles}/{progress.totalFiles}"
+  return "downloading"
+
+
+class ManualRefresh:
+  """Turns the MapdRefreshRequested flag into a reliable download trigger (pure logic, no I/O)."""
+
+  def __init__(self):
+    self._deadline: float | None = None
+    self._last_send = -1e9
+
+  def step(self, now: float, requested: bool, download_active: bool) -> tuple[bool, bool, bool]:
+    """Returns (send_trigger, done, failed)."""
+    if self._deadline is None:
+      if not requested:
+        return False, False, False
+      if download_active:             # a download is already running (e.g. the weekly one): nothing to start
+        return False, True, False
+      self._deadline = now + MANUAL_CONFIRM_TIMEOUT
+      self._last_send = -1e9
+    if download_active:
+      self._deadline = None
+      return False, True, False
+    if now > self._deadline:
+      self._deadline = None
+      return False, False, True
+    if now - self._last_send >= MANUAL_RESEND_PERIOD:
+      self._last_send = now
+      return True, False, False
+    return False, False, False
+
+
+
 def download_in_progress_or_done(sm: messaging.SubMaster) -> bool:
   progress = sm['mapdExtendedOut'].downloadProgress
   return bool(progress.active or progress.totalFiles > 0)
@@ -300,6 +353,9 @@ def main():
 
   last_retry = 0.
   last_mapd_out = time.monotonic()
+  manual_refresh = ManualRefresh()
+  last_status = None
+  failed_until = 0.
   rk = Ratekeeper(TICK_HZ, print_delay_threshold=None)
   while True:
     sm.update(0)
@@ -319,6 +375,26 @@ def main():
         send_download_trigger(pm)
         last_retry = now
         params.put("OsmLastUpdateCheck", datetime.datetime.now(datetime.UTC).replace(tzinfo=None))
+
+    # on-demand refresh from the settings button
+    progress = sm['mapdExtendedOut'].downloadProgress
+    send, done, failed = manual_refresh.step(now, params.get_bool(REFRESH_REQUEST_PARAM), bool(progress.active))
+    if send:
+      send_download_trigger(pm)
+    if done:
+      params.put("OsmLastUpdateCheck", datetime.datetime.now(datetime.UTC).replace(tzinfo=None))
+      params.remove(REFRESH_REQUEST_PARAM)
+      last_retry = now
+      cloudlog.event("mapd manual map refresh started")
+    elif failed:
+      params.remove(REFRESH_REQUEST_PARAM)
+      failed_until = now + FAILED_STATUS_SHOW_TIME
+      cloudlog.warning("mapd manual map refresh: mapd never reported the download as active")
+
+    status = format_download_status(progress) or (FAILED_STATUS if now < failed_until else "")
+    if status != last_status:
+      params.put(DOWNLOAD_STATUS_PARAM, status)
+      last_status = status
 
     accept_watcher.update(sm, pm, params)
     rk.keep_time()
