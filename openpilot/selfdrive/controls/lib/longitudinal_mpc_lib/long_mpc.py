@@ -15,7 +15,7 @@ if __name__ == '__main__':  # generating code
 else:
   from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.c_generated_code.acados_ocp_solver_pyx import AcadosOcpSolverCython
 
-from casadi import SX, vertcat
+from casadi import SX, vertcat, fmin, fmax
 
 MODEL_NAME = 'long'
 LONG_MPC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -57,9 +57,9 @@ COMFORT_BRAKE = 2.5
 STOP_DISTANCE = 6.0
 # xnor: stock Aggressive follows at 1.25 s, which measured ~1.6 s on real drives and felt too close (2026-10-19).
 # Aggressive keeps its sharper response (jerk factor 0.5) and the late speed-up for higher limits (mapd_config.py), but
-# follows at 2.0 s (+6 m stop distance): ~50 m at 80 km/h instead of ~34 m. Standard (1.45 s) and Relaxed (1.75 s) are unchanged, so Aggressive
-# now has the LONGEST gap of the three; the HUD distance bars still read 1/2/3 by profile.
-AGGRESSIVE_T_FOLLOW = 2.0
+# follows at 1.75 s (2.0 s felt too long at town speeds on 2026-10-20). Standard (1.45 s) and Relaxed (1.75 s) are unchanged;
+# the HUD distance bars still read 1/2/3 by profile. The 6 m stop distance is tapered, see get_stop_distance().
+AGGRESSIVE_T_FOLLOW = 1.75
 MIN_X_LEAD_FACTOR = 0.5
 
 def get_jerk_factor(personality=log.LongitudinalPersonality.standard):
@@ -86,8 +86,16 @@ def get_T_FOLLOW(personality=log.LongitudinalPersonality.standard):
 def get_stopped_equivalence_factor(v_lead):
   return (v_lead**2) / (2 * COMFORT_BRAKE)
 
+STOP_DISTANCE_LOW = 3.0       # standstill/low-speed part of the gap
+TAPER_V0 = 60 / 3.6           # at or below this speed the low value applies
+TAPER_V1 = 80 / 3.6           # at or above this speed the full STOP_DISTANCE applies
+
+def get_stop_distance(v_ego):
+  frac = fmax(0.0, fmin(1.0, (v_ego - TAPER_V0) / (TAPER_V1 - TAPER_V0)))
+  return STOP_DISTANCE_LOW + (STOP_DISTANCE - STOP_DISTANCE_LOW) * frac
+
 def get_safe_obstacle_distance(v_ego, t_follow):
-  return (v_ego**2) / (2 * COMFORT_BRAKE) + t_follow * v_ego + STOP_DISTANCE
+  return (v_ego**2) / (2 * COMFORT_BRAKE) + t_follow * v_ego + get_stop_distance(v_ego)
 
 def gen_long_model():
   model = AcadosModel()
