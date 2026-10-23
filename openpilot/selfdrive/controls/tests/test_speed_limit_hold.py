@@ -1,4 +1,4 @@
-from openpilot.selfdrive.controls.lib.longitudinal_planner import hold_for_next_limit, SPEED_UP_LEAD_TIME
+from openpilot.selfdrive.controls.lib.longitudinal_planner import apply_limit_offset, hold_for_next_limit, SPEED_UP_LEAD_TIME
 
 KPH = 1 / 3.6
 
@@ -37,3 +37,17 @@ class TestHoldForNextLimit:
     assert self.hold(60, 60, 50, 150, 50) is None  # decrease: never delayed
     assert self.hold(60, 0, 80, 150, 80) is None  # no current limit known
     assert self.hold(60, 60, 80, 0, 80) is None  # no distance
+
+
+class TestApplyLimitOffset:
+  def test_off_is_identity(self):
+    assert apply_limit_offset(20., 20., 0) == 20.
+
+  def test_scales_when_limit_binds(self):
+    assert abs(apply_limit_offset(20., 20., 4) - 20.8) < 1e-9
+
+  def test_curve_binding_not_raised(self):
+    assert apply_limit_offset(12., 20., 4) == 12.
+
+  def test_no_limit_part(self):
+    assert apply_limit_offset(20., 0., 4) == 20.

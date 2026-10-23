@@ -102,6 +102,7 @@ class TogglesLayoutMici(NavScroller):
     enable_openpilot = BigParamControl("enable openpilot", "OpenpilotEnabledToggle", toggle_callback=restart_needed_callback)
     mads_toggle = BigParamControl("modular assistive driving system (mads)", "Mads", toggle_callback=restart_needed_callback)
     speed_limit_toggle = BigParamControl("speed limit control", "SpeedLimitControl", toggle_callback=restart_needed_callback)
+    speed_limit_offset = BigMultiParamToggle("speed limit offset", "SpeedLimitOffset", ["off"] + [f"+{i}%" for i in range(1, 11)])
     scc_map_toggle = BigParamControl("smart cruise control - map", "SmartCruiseControlMap", toggle_callback=restart_needed_callback)
     scc_vision_toggle = BigParamControl("smart cruise control - vision", "SmartCruiseControlVision", toggle_callback=restart_needed_callback)
 
@@ -118,6 +119,7 @@ class TogglesLayoutMici(NavScroller):
       enable_openpilot,
       mads_toggle,
       speed_limit_toggle,
+      speed_limit_offset,
       scc_map_toggle,
       scc_vision_toggle,
       MapDataUpdateButton(),

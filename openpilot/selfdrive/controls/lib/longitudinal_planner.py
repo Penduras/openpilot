@@ -35,6 +35,15 @@ _A_TOTAL_MAX_BP = [20., 40.]
 SPEED_UP_LEAD_TIME = 3.0
 
 
+def apply_limit_offset(suggested, limit_suggested, offset_pct):
+  """Scale mapd's suggested speed by the user's speed-limit offset (percent), but only when the
+  speed limit is the binding term. suggestedSpeed mixes the limit with curve/vision speeds; when it
+  is below the limit part a curve is binding, and that must not be raised."""
+  if offset_pct <= 0 or limit_suggested <= 0. or suggested < limit_suggested - 0.01:
+    return suggested
+  return suggested * (1. + offset_pct / 100.)
+
+
 def hold_for_next_limit(v_ego, speed_limit, next_limit, next_limit_dist, limit_suggested_speed, lead_time=SPEED_UP_LEAD_TIME):
   """Cap on v_cruise while mapd's early speed-up for a higher upcoming limit is still too far out.
 
@@ -92,6 +101,8 @@ class LongitudinalPlanner:
     self.output_should_stop = False
 
     self.params = Params()
+    self.limit_offset_pct = 0
+    self.offset_counter = 0
     # xnor: mapd folds speed-limit, map-curve, and vision-curve control into one
     # suggestedSpeed output, so any toggle enables reading it - mapd itself won't apply
     # a given calculation unless the matching setting was written to MapdSettings (see
@@ -177,11 +188,15 @@ class LongitudinalPlanner:
     if self.mapd_speed_control_enabled:
       mapd_out = sm['mapdOut']
       if mapd_out.suggestedSpeed > 0.:
-        v_cruise = min(v_cruise, mapd_out.suggestedSpeed)
+        self.offset_counter += 1
+        if self.offset_counter % 20 == 1:
+          self.limit_offset_pct = max(0, min(10, self.params.get("SpeedLimitOffset") or 0))
+        offset = self.limit_offset_pct
+        v_cruise = min(v_cruise, apply_limit_offset(mapd_out.suggestedSpeed, mapd_out.speedLimitSuggestedSpeed, offset))
         hold = hold_for_next_limit(v_ego, mapd_out.speedLimit, mapd_out.nextSpeedLimit, mapd_out.nextSpeedLimitDistance,
                                    mapd_out.speedLimitSuggestedSpeed)
         if hold is not None:
-          v_cruise = min(v_cruise, hold)
+          v_cruise = min(v_cruise, max(hold, mapd_out.speedLimit * (1. + offset / 100.)))
 
     self.a_cruise = get_cruise_accel(sm['selfdriveState'].experimentalMode, v_cruise, v_ego,
                                      self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
