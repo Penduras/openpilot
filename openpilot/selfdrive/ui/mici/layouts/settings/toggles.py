@@ -85,6 +85,12 @@ class MapDataUpdateButton(BigButton):
                                                 lambda: params.put_bool("MapdRefreshRequested", True)))
 
 
+class ToggleFolder(NavScroller):
+  def __init__(self, widgets):
+    super().__init__()
+    self._scroller.add_widgets(widgets)
+
+
 class TogglesLayoutMici(NavScroller):
   def __init__(self):
     super().__init__()
@@ -106,24 +112,20 @@ class TogglesLayoutMici(NavScroller):
     scc_map_toggle = BigParamControl("smart cruise control - map", "SmartCruiseControlMap", toggle_callback=restart_needed_callback)
     scc_vision_toggle = BigParamControl("smart cruise control - vision", "SmartCruiseControlVision", toggle_callback=restart_needed_callback)
 
-    self._scroller.add_widgets([
-      self._personality_toggle,
-      self._experimental_btn,
-      is_metric_toggle,
-      ldw_toggle,
-      always_on_dm_toggle,
-      quiet_mode_toggle,
-      tailscale_toggle,
-      record_front,
-      record_mic,
-      enable_openpilot,
-      mads_toggle,
-      speed_limit_toggle,
-      speed_limit_offset,
-      scc_map_toggle,
-      scc_vision_toggle,
-      MapDataUpdateButton(),
-    ])
+    # xnor: the toggle list got long, so the top level holds a few folders that each open a short list
+    folders = (
+      ("driving", [self._personality_toggle, self._experimental_btn]),
+      ("speed &\nmap", [speed_limit_toggle, speed_limit_offset, scc_map_toggle, scc_vision_toggle, MapDataUpdateButton()]),
+      ("display &\nalerts", [is_metric_toggle, ldw_toggle, quiet_mode_toggle]),
+      ("recording &\nsystem", [record_front, record_mic, always_on_dm_toggle, tailscale_toggle, enable_openpilot, mads_toggle]),
+    )
+    self._folder_buttons = []
+    for title, widgets in folders:
+      panel = ToggleFolder(widgets)
+      btn = BigButton(title, "")
+      btn.set_click_callback(lambda panel=panel: gui_app.push_widget(panel))
+      self._folder_buttons.append(btn)
+    self._scroller.add_widgets(self._folder_buttons)
 
     # Toggle lists
     self._refresh_toggles = (
