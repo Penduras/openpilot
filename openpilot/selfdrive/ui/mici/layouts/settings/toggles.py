@@ -85,6 +85,30 @@ class MapDataUpdateButton(BigButton):
                                                 lambda: params.put_bool("MapdRefreshRequested", True)))
 
 
+class SpeedLimitOffsetButton(BigButton):
+  """xnor: tap to step the speed limit offset (SpeedLimitOffset param, percent) 0..10, wrapping around.
+  The sub-label shows the current value; BigMultiParamToggle would draw one pill per option (11 of them)."""
+  MAX_PERCENT = 10
+
+  def __init__(self):
+    super().__init__("speed limit\noffset", "")
+    self.set_click_callback(self._on_click)
+    self.refresh()
+
+  def _percent(self) -> int:
+    return max(0, min(self.MAX_PERCENT, ui_state.params.get("SpeedLimitOffset") or 0))
+
+  def refresh(self):
+    pct = self._percent()
+    value = f"+{pct}%" if pct else "off"
+    if value != self.value:
+      self.set_value(value)
+
+  def _on_click(self):
+    ui_state.params.put("SpeedLimitOffset", (self._percent() + 1) % (self.MAX_PERCENT + 1), block=True)
+    self.refresh()
+
+
 class ToggleFolder(NavScroller):
   def __init__(self, widgets):
     super().__init__()
@@ -108,7 +132,8 @@ class TogglesLayoutMici(NavScroller):
     enable_openpilot = BigParamControl("enable openpilot", "OpenpilotEnabledToggle", toggle_callback=restart_needed_callback)
     mads_toggle = BigParamControl("modular assistive driving system (mads)", "Mads", toggle_callback=restart_needed_callback)
     speed_limit_toggle = BigParamControl("speed limit control", "SpeedLimitControl", toggle_callback=restart_needed_callback)
-    speed_limit_offset = BigMultiParamToggle("speed limit offset", "SpeedLimitOffset", ["off"] + [f"+{i}%" for i in range(1, 11)])
+    self._speed_limit_offset = SpeedLimitOffsetButton()
+    speed_limit_offset = self._speed_limit_offset
     scc_map_toggle = BigParamControl("smart cruise control - map", "SmartCruiseControlMap", toggle_callback=restart_needed_callback)
     scc_vision_toggle = BigParamControl("smart cruise control - vision", "SmartCruiseControlVision", toggle_callback=restart_needed_callback)
 
@@ -181,6 +206,8 @@ class TogglesLayoutMici(NavScroller):
         self._experimental_btn.set_checked(False)
         self._personality_toggle.set_visible(False)
         ui_state.params.remove("ExperimentalMode")
+
+    self._speed_limit_offset.refresh()
 
     # Refresh toggles from params to mirror external changes
     for key, item in self._refresh_toggles:
