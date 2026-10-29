@@ -86,7 +86,7 @@ def get_T_FOLLOW(personality=log.LongitudinalPersonality.standard):
 def get_stopped_equivalence_factor(v_lead):
   return (v_lead**2) / (2 * COMFORT_BRAKE)
 
-STOP_DISTANCE_LOW = 3.0       # standstill/low-speed part of the gap
+STOP_DISTANCE_LOW = 4.0       # standstill/low-speed part of the gap
 TAPER_V0 = 60 / 3.6           # at or below this speed the low value applies
 TAPER_V1 = 80 / 3.6           # at or above this speed the full STOP_DISTANCE applies
 
