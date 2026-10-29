@@ -38,8 +38,9 @@ SPEED_UP_LEAD_TIME = 3.0
 def apply_limit_offset(suggested, limit_suggested, offset_pct):
   """Scale mapd's suggested speed by the user's speed-limit offset (percent), but only when the
   speed limit is the binding term. suggestedSpeed mixes the limit with curve/vision speeds; when it
-  is below the limit part a curve is binding, and that must not be raised."""
-  if offset_pct <= 0 or limit_suggested <= 0. or suggested < limit_suggested - 0.01:
+  is below the limit part a curve is binding, and when it is above it the driver's gas-pedal
+  override is being held (mapd keeps the overridden speed); neither must be raised."""
+  if offset_pct <= 0 or limit_suggested <= 0. or abs(suggested - limit_suggested) > 0.01:
     return suggested
   return suggested * (1. + offset_pct / 100.)
 

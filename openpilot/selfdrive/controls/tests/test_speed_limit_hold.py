@@ -51,3 +51,7 @@ class TestApplyLimitOffset:
 
   def test_no_limit_part(self):
     assert apply_limit_offset(20., 0., 4) == 20.
+
+  def test_gas_override_not_raised(self):
+    # mapd holds the driver's overridden speed (85 km/h on an 80 limit) as suggestedSpeed after release
+    assert apply_limit_offset(23.6, 22.2, 2) == 23.6
