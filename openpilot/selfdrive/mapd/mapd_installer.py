@@ -37,8 +37,17 @@ from openpilot.selfdrive.mapd import MAPD_PATH, MAPD_BIN_DIR
 # mapd_config.py) - may reduce how often the watchdog ever needs to fire, though
 # our own workarounds are staying in place regardless since neither bug's root
 # cause was ever confirmed 100% fixed upstream, just plausibly addressed.
-VERSION = "v2.3.1"
-URL = f"https://github.com/pfeiferj/mapd/releases/download/{VERSION}/mapd"
+#
+# v2.3.1 -> main@8e5eee6 (2026-10-29): upstream has had no release since 2026-08-21
+# but main carries PR #138 (tile extraction without O_TRUNC left stray tail bytes ->
+# "unexpected EOF" -> tileLoaded=0 at tile borders) plus speed-limit tracking fixes.
+# There is no release asset for it, so the arm64 binary is cross-compiled by hand and
+# copied onto the device; VERSION is only a label that matches the MapdVersion param.
+# URL is None => never download (a non-release label must not fetch the old v2.3.1
+# over the hand-installed binary). Switch back to a "vX.Y.Z" tag + release URL once
+# upstream cuts a release that contains #138.
+VERSION = "main-8e5eee6"
+URL: str | None = None
 
 
 def update_installed_version(version: str, params: Params | None = None) -> None:
@@ -86,6 +95,9 @@ class MapdInstallManager:
     os.chmod(file_path, current_permissions | stat.S_IEXEC)
 
   def _download_file(self, num_retries=5) -> bool:
+    if URL is None:
+      logging.warning(f"mapd: {VERSION} has no download URL, expecting a hand-installed binary")
+      return False
     temp_file = Path(MAPD_PATH + ".tmp")
     download_timeout = 60
     for cnt in range(num_retries):
