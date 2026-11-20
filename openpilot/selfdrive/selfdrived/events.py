@@ -423,7 +423,8 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
   },
 
   EventName.bigModelFailed: {
-    ET.PERMANENT: NormalPermanentAlert("Big Model Failed ", "Restart the car to retry,\nnow driving on small model", duration=20.),
+    ET.SOFT_DISABLE: soft_disable_alert("Big Model Failed"),
+    ET.PERMANENT: NormalPermanentAlert("Big Model Failed ", "Restart the car to retry,\nsmall model is still available", duration=20.),
   },
 
   EventName.lateralManeuver: {
@@ -1115,6 +1116,16 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
 
   EventName.pedalPressedAlertOnly: {
     ET.WARNING: NoEntryAlert("Pedal Pressed"),
+  },
+
+  # xnor: speed limit events are placeholders, nothing raises them yet
+  EventName.speedLimitPreActive: {},
+  EventName.speedLimitActive: {},
+  EventName.speedLimitChanged: {},
+  EventName.speedLimitPending: {},
+
+  EventName.userBookmarkNotPaired: {
+    ET.PERMANENT: NormalPermanentAlert("Bookmark Saved", "pair to connect\nto view", duration=1.5),
   },
 }
 

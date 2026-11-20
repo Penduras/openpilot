@@ -30,12 +30,6 @@ enum SpiError {
 
 const unsigned int SPI_ACK_TIMEOUT = 500; // milliseconds
 const std::string SPI_DEVICE = "/dev/spidev0.0";
-// TODO: fix SPI turnaround synchronization at the protocol level.
-static uint64_t spi_last_bus_activity_ns = 0;  // protected by hw_lock
-
-static void wait_for_spi_turnaround(uint64_t start_ns) {
-  while ((nanos_since_boot() - start_ns) < 400000) {}
-}
 
 class LockEx {
 public:
@@ -326,8 +320,6 @@ int PandaSpiHandle::spi_transfer(uint8_t endpoint, uint8_t *tx_data, uint16_t tx
   assert(tx_len < SPI_BUF_SIZE);
   assert(max_rx_len < SPI_BUF_SIZE);
 
-  wait_for_spi_turnaround(spi_last_bus_activity_ns);
-
   xfer_count++;
   header = {
     .sync = SPI_SYNC,
@@ -356,7 +348,6 @@ int PandaSpiHandle::spi_transfer(uint8_t endpoint, uint8_t *tx_data, uint16_t tx
   if (ret < 0) {
     goto fail;
   }
-  wait_for_spi_turnaround(nanos_since_boot());
 
   // Send data
   if (tx_data != NULL) {
@@ -399,7 +390,6 @@ int PandaSpiHandle::spi_transfer(uint8_t endpoint, uint8_t *tx_data, uint16_t tx
     memcpy(rx_data, rx_buf + 3, rx_data_len);
   }
 
-  spi_last_bus_activity_ns = nanos_since_boot();
   return rx_data_len;
 
 fail:
@@ -414,7 +404,6 @@ fail:
     }
   }
 
-  spi_last_bus_activity_ns = nanos_since_boot();
   if (ret >= 0) ret = -1;
   return ret;
 }
