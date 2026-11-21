@@ -105,6 +105,11 @@ class TogglesLayoutMici(NavScroller):
                                                    "Set speed is a maximum, not a target.\n" +
                                                    "These are alpha features. Expect mistakes.\n" +
                                                    "The path colors show acceleration and braking.")
+    gentle_toggle = BigParamControl("gentle mode (winter)", "GentleMode",
+                                    description="Softer gas and brakes for ice and snow.\n" +
+                                                "Caps acceleration and smooths speed changes.\n" +
+                                                "Following distance is unchanged.\n" +
+                                                "Emergency braking is not limited.")
     is_metric_toggle = BigParamControl("use metric units", "IsMetric")
     ldw_toggle = BigParamControl("lane departure warnings", "IsLdwEnabled",
                                  description="Warn when you drift across a detected lane line.\n" +
@@ -131,7 +136,7 @@ class TogglesLayoutMici(NavScroller):
 
     # xnor: the toggle list got long, so the top level holds a few folders that each open a short list
     folders = (
-      ("driving", [self._personality_toggle, self._experimental_btn]),
+      ("driving", [self._personality_toggle, self._experimental_btn, gentle_toggle]),
       ("speed &\nmap", [speed_limit_toggle, speed_limit_offset, scc_map_toggle, scc_vision_toggle, MapDataUpdateButton()]),
       ("display &\nalerts", [is_metric_toggle, ldw_toggle, quiet_mode_toggle]),
       ("recording &\nsystem", [record_front, record_mic, always_on_dm_toggle, tailscale_toggle, enable_openpilot, mads_toggle]),
@@ -147,6 +152,7 @@ class TogglesLayoutMici(NavScroller):
     # Toggle lists
     self._refresh_toggles = (
       ("ExperimentalMode", self._experimental_btn),
+      ("GentleMode", gentle_toggle),
       ("IsMetric", is_metric_toggle),
       ("IsLdwEnabled", ldw_toggle),
       ("AlwaysOnDM", always_on_dm_toggle),

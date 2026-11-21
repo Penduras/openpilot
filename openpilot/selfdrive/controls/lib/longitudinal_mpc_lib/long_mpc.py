@@ -61,6 +61,10 @@ STOP_DISTANCE = 6.0
 # the HUD distance bars still read 1/2/3 by profile. The 6 m stop distance is tapered, see get_stop_distance().
 AGGRESSIVE_T_FOLLOW = 1.75
 MIN_X_LEAD_FACTOR = 0.5
+# xnor: "gentle mode" (winter / slippery roads) makes every profile at least this smooth in gas/brake
+# changes (Aggressive is 0.5, the others 1.0). It only raises the penalty on changing acceleration;
+# the obstacle constraints and the emergency braking are untouched.
+GENTLE_JERK_FACTOR = 1.5
 
 def get_jerk_factor(personality=log.LongitudinalPersonality.standard):
   if personality==log.LongitudinalPersonality.relaxed:
@@ -274,8 +278,10 @@ class LongitudinalMpc:
     for i in range(N):
       self.solver.cost_set(i, 'Zl', Zl)
 
-  def set_weights(self, prev_accel_constraint=True, personality=log.LongitudinalPersonality.standard):
+  def set_weights(self, prev_accel_constraint=True, personality=log.LongitudinalPersonality.standard, gentle=False):
     jerk_factor = get_jerk_factor(personality)
+    if gentle:
+      jerk_factor = max(jerk_factor, GENTLE_JERK_FACTOR)
     a_change_cost = A_CHANGE_COST if prev_accel_constraint else 0
     cost_weights = [X_EGO_OBSTACLE_COST, X_EGO_COST, V_EGO_COST, A_EGO_COST, jerk_factor * a_change_cost, jerk_factor * J_EGO_COST]
     constraint_cost_weights = [LIMIT_COST, LIMIT_COST, LIMIT_COST, DANGER_ZONE_COST]
