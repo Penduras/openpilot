@@ -2,8 +2,8 @@ import numpy as np
 
 from openpilot.cereal import log
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import GENTLE_JERK_FACTOR, get_jerk_factor
-from openpilot.selfdrive.controls.lib.longitudinal_planner import (GENTLE_ACCEL_SCALE, GENTLE_JERK_SCALE, get_cruise_accel,
-                                                                    get_max_accel, gentle_accel_cap)
+from openpilot.selfdrive.controls.lib.longitudinal_planner import (A_CRUISE_MIN, A_CRUISE_MIN_GENTLE, GENTLE_ACCEL_SCALE,
+                                                                    GENTLE_JERK_SCALE, get_cruise_accel, get_max_accel, gentle_accel_cap)
 
 P = log.LongitudinalPersonality
 
@@ -38,3 +38,12 @@ class TestGentleMode:
     assert GENTLE_JERK_FACTOR > get_jerk_factor(P.aggressive)
     for p in (P.aggressive, P.standard, P.relaxed):
       assert max(get_jerk_factor(p), GENTLE_JERK_FACTOR) == GENTLE_JERK_FACTOR
+
+  def test_cruise_slowdown_floor(self):
+    # a big set-speed drop (80 -> 30 km/h) must brake properly in normal mode and softer in gentle mode
+    kw = {"e2e": False, "v_cruise": 30 / 3.6, "v_ego": 80 / 3.6, "a_cruise_prev": A_CRUISE_MIN, "angle_steers": 0., "CP": FakeCP(), "dt": 0.05,
+          "accel_coast": 0., "allow_throttle": True}
+    assert A_CRUISE_MIN < A_CRUISE_MIN_GENTLE < 0.
+    assert np.isclose(get_cruise_accel(**kw), A_CRUISE_MIN)
+    kw["a_cruise_prev"] = A_CRUISE_MIN_GENTLE
+    assert np.isclose(get_cruise_accel(**kw, gentle=True), A_CRUISE_MIN_GENTLE)

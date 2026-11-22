@@ -20,7 +20,10 @@ from openpilot.common.swaglog import cloudlog
 A_CRUISE_MAX_VALS = [1.6, 1.2, 0.8, 0.6]
 A_CRUISE_MAX_BP = [0., 10.0, 25., 40.]
 J_CRUISE_VALS = [1.6, 1.2, 0.8, 0.6]
-A_CRUISE_MIN = -0.5
+# xnor: upstream softened this to -0.5 (#39060), which is barely more than coasting on a Tesla and made a set-speed
+# drop (e.g. 80 -> 30) feel like no braking at all. This fork keeps the previous -1.2; gentle mode uses upstream's -0.5.
+A_CRUISE_MIN = -1.2
+A_CRUISE_MIN_GENTLE = -0.5
 CONTROL_N_T_IDX = ModelConstants.T_IDXS[:CONTROL_N]
 ALLOW_THROTTLE_THRESHOLD = 0.4
 MIN_ALLOW_THROTTLE_SPEED = 2.5
@@ -91,7 +94,7 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
       coast_limit = np.interp(v_ego, [MIN_ALLOW_THROTTLE_SPEED, MIN_ALLOW_THROTTLE_SPEED*2], [max_accel, clipped_accel_coast])
       max_accel = min(max_accel, coast_limit)
 
-  target_accel = np.clip(v_cruise - v_ego, A_CRUISE_MIN, max_accel)
+  target_accel = np.clip(v_cruise - v_ego, A_CRUISE_MIN_GENTLE if gentle else A_CRUISE_MIN, max_accel)
   j_cruise = np.interp(v_ego, A_CRUISE_MAX_BP, J_CRUISE_VALS) * (GENTLE_JERK_SCALE if gentle else 1.0)
   target_accel = float(np.clip(target_accel, a_cruise_prev - j_cruise * dt, a_cruise_prev + j_cruise * dt))
 
